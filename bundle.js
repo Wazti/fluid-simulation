@@ -46,22 +46,2717 @@
 
 	'use strict';
 	
-	var _render = __webpack_require__(1);
+	var _dat = __webpack_require__(1);
+	
+	var _dat2 = _interopRequireDefault(_dat);
+	
+	var _render = __webpack_require__(2);
 	
 	var _render2 = _interopRequireDefault(_render);
 	
+	var _painter = __webpack_require__(6);
+	
+	var _painter2 = _interopRequireDefault(_painter);
+	
+	var _particle = __webpack_require__(14);
+	
+	var _bound = __webpack_require__(15);
+	
+	var _bound2 = _interopRequireDefault(_bound);
+	
+	var _looping = __webpack_require__(16);
+	
+	var _looping2 = _interopRequireDefault(_looping);
+	
+	var _macGrid = __webpack_require__(18);
+	
+	var _macGrid2 = _interopRequireDefault(_macGrid);
+	
+	var _simulation2 = __webpack_require__(19);
+	
+	var _simulation3 = _interopRequireDefault(_simulation2);
+	
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+	
+	var step_size = 1 / 60; //60fps
 	
 	var canvas = document.getElementById("canvas");
 	
 	var gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+	gl.webgl2 = typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext;
+	if (!gl.webgl2) {
+	  var ext_tex_float = gl.getExtension("OES_texture_float");
+	} else {
+	  var ext_color_buffer_float = gl.getExtension("EXT_color_buffer_float");
+	}
 	var render = (0, _render2.default)(gl);
+	
+	var _mac = (0, _macGrid2.default)(gl),
+	    macGrid = _mac.macGrid;
+	
+	var _simulation = (0, _simulation3.default)(gl),
+	    Simulation = _simulation.Simulation;
+	
+	var _Painters = (0, _painter2.default)(gl),
+	    ParticlePainter = _Painters.ParticlePainter,
+	    GridPainter = _Painters.GridPainter;
+	
+	var simulations;
+	
+	var ParticleBuffer = (0, _particle._ParticleBuffer)(gl);
 	var particlePainter = ParticlePainter(null);
+	var gridPainter = GridPainter(null);
 	render.add(particlePainter);
-	console.log(gl);
+	render.add(gridPainter);
+	var particleparams = {
+	  color: '#FF0000'
+	};
+	var boxParams = { x: 0.33, y: 0.72, z: 0.84 };
+	var simulationControls = {
+	  start: function start() {
+	    simulations.shouldUpdate = true;
+	    drawloop.start();
+	  },
+	  stop: function stop() {
+	    simulations.shouldUpdate = false;
+	  },
+	  restart: function restart() {
+	    var running = simulations.shouldUpdate;
+	    initialize(simulationControls);
+	    simulations.shouldUpdate = running;
+	    drawloop.start();
+	  },
+	  density: 10000, // particles per cubic meter
+	  solverSteps: 100,
+	  viscosity: 5,
+	  precondition: true,
+	  ipp: true
+	};
+	function initialize(settings) {
+	  var CELL_SIZE = 2 / Math.cbrt(settings.density); // ~8 particles per cell
+	  var box = new _particle.BoxRegion(4 * settings.density, new _bound2.default({
+	    minX: -boxParams.x, maxX: 0.0,
+	    minY: -boxParams.y / 2, maxY: boxParams.y / 2,
+	    minZ: -boxParams.z / 2, maxZ: boxParams.z / 2
+	
+	  }));
+	  var particles = new ParticleBuffer();
+	  particles.addRegion(box);
+	  particles.create();
+	  particlePainter.setBuffer(particles);
+	  var grid = new macGrid(new _bound2.default({
+	    minX: -0.8, maxX: 0.8,
+	    minY: -0.5, maxY: 0.5,
+	    minZ: -0.5, maxZ: 0.5
+	  }), CELL_SIZE);
+	  gridPainter.setBuffer(grid);
+	  simulations = Simulation(grid, particles, settings.solverSteps);
+	}
+	var drawloop = (0, _looping2.default)(function () {
+	  return simulations.shouldUpdate;
+	}, function () {
+	  if (simulations.shouldUpdate) {
+	    simulations.step(step_size, simulationControls);
+	  }
+	  drawUpdate();
+	});
+	function drawUpdate() {
+	  ///перерисовываем канвас 
+	  gl.enable(gl.DEPTH_TEST);
+	  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	  gl.viewport(0, 0, canvas.width, canvas.height);
+	  render.draw(particleparams);
+	}
+	// когда render отрисован добавляем возможность двигать камерой
+	render.ready.then(function () {
+	  initialize(simulationControls);
+	  drawloop.start();
+	  ///вешаем событие при наведении, чтобы объект снова перерисовывался
+	  render.camera.controls.addEventListener('change', function (e) {
+	    drawloop.start();
+	  });
+	  window.addEventListener('resize', function (e) {
+	    drawloop.start();
+	  });
+	});
+	var gui = new _dat2.default.GUI();
+	var particleSettings = gui.addFolder('Частица');
+	particleSettings.addColor(particleparams, 'color').onChange(function () {
+	  drawloop.start();
+	});
+	particleSettings.open();
+	
+	var boxSettings = gui.addFolder('Размеры области');
+	boxSettings.add(boxParams, 'x', 0, 1).onChange(function () {
+	  initialize(simulationControls);
+	  drawloop.start();
+	});
+	boxSettings.add(boxParams, 'y', 0, 1).onChange(function () {
+	  initialize(simulationControls);
+	  drawloop.start();
+	});
+	boxSettings.add(boxParams, 'z', 0, 1).onChange(function () {
+	  initialize(simulationControls);
+	  drawloop.start();
+	});
+	
+	var fluidSettings = gui.addFolder('Жидкость');
+	fluidSettings.add(simulationControls, 'density');
+	fluidSettings.add(simulationControls, 'viscosity', 0, 100);
+	fluidSettings.open();
+	
+	var controls = gui.addFolder('Controls');
+	controls.add(simulationControls, 'start');
+	controls.add(simulationControls, 'stop');
+	controls.add(simulationControls, 'restart');
+	controls.open();
 
 /***/ }),
 /* 1 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	/**
+	 * dat-gui JavaScript Controller Library
+	 * http://code.google.com/p/dat-gui
+	 *
+	 * Copyright 2011 Data Arts Team, Google Creative Lab
+	 *
+	 * Licensed under the Apache License, Version 2.0 (the "License");
+	 * you may not use this file except in compliance with the License.
+	 * You may obtain a copy of the License at
+	 *
+	 * http://www.apache.org/licenses/LICENSE-2.0
+	 */
+	
+	(function (global, factory) {
+		 true ? factory(exports) :
+		typeof define === 'function' && define.amd ? define(['exports'], factory) :
+		(factory((global.dat = {})));
+	}(this, (function (exports) { 'use strict';
+	
+	function ___$insertStyle(css) {
+	  if (!css) {
+	    return;
+	  }
+	  if (typeof window === 'undefined') {
+	    return;
+	  }
+	
+	  var style = document.createElement('style');
+	
+	  style.setAttribute('type', 'text/css');
+	  style.innerHTML = css;
+	  document.head.appendChild(style);
+	
+	  return css;
+	}
+	
+	function colorToString (color, forceCSSHex) {
+	  var colorFormat = color.__state.conversionName.toString();
+	  var r = Math.round(color.r);
+	  var g = Math.round(color.g);
+	  var b = Math.round(color.b);
+	  var a = color.a;
+	  var h = Math.round(color.h);
+	  var s = color.s.toFixed(1);
+	  var v = color.v.toFixed(1);
+	  if (forceCSSHex || colorFormat === 'THREE_CHAR_HEX' || colorFormat === 'SIX_CHAR_HEX') {
+	    var str = color.hex.toString(16);
+	    while (str.length < 6) {
+	      str = '0' + str;
+	    }
+	    return '#' + str;
+	  } else if (colorFormat === 'CSS_RGB') {
+	    return 'rgb(' + r + ',' + g + ',' + b + ')';
+	  } else if (colorFormat === 'CSS_RGBA') {
+	    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+	  } else if (colorFormat === 'HEX') {
+	    return '0x' + color.hex.toString(16);
+	  } else if (colorFormat === 'RGB_ARRAY') {
+	    return '[' + r + ',' + g + ',' + b + ']';
+	  } else if (colorFormat === 'RGBA_ARRAY') {
+	    return '[' + r + ',' + g + ',' + b + ',' + a + ']';
+	  } else if (colorFormat === 'RGB_OBJ') {
+	    return '{r:' + r + ',g:' + g + ',b:' + b + '}';
+	  } else if (colorFormat === 'RGBA_OBJ') {
+	    return '{r:' + r + ',g:' + g + ',b:' + b + ',a:' + a + '}';
+	  } else if (colorFormat === 'HSV_OBJ') {
+	    return '{h:' + h + ',s:' + s + ',v:' + v + '}';
+	  } else if (colorFormat === 'HSVA_OBJ') {
+	    return '{h:' + h + ',s:' + s + ',v:' + v + ',a:' + a + '}';
+	  }
+	  return 'unknown format';
+	}
+	
+	var ARR_EACH = Array.prototype.forEach;
+	var ARR_SLICE = Array.prototype.slice;
+	var Common = {
+	  BREAK: {},
+	  extend: function extend(target) {
+	    this.each(ARR_SLICE.call(arguments, 1), function (obj) {
+	      var keys = this.isObject(obj) ? Object.keys(obj) : [];
+	      keys.forEach(function (key) {
+	        if (!this.isUndefined(obj[key])) {
+	          target[key] = obj[key];
+	        }
+	      }.bind(this));
+	    }, this);
+	    return target;
+	  },
+	  defaults: function defaults(target) {
+	    this.each(ARR_SLICE.call(arguments, 1), function (obj) {
+	      var keys = this.isObject(obj) ? Object.keys(obj) : [];
+	      keys.forEach(function (key) {
+	        if (this.isUndefined(target[key])) {
+	          target[key] = obj[key];
+	        }
+	      }.bind(this));
+	    }, this);
+	    return target;
+	  },
+	  compose: function compose() {
+	    var toCall = ARR_SLICE.call(arguments);
+	    return function () {
+	      var args = ARR_SLICE.call(arguments);
+	      for (var i = toCall.length - 1; i >= 0; i--) {
+	        args = [toCall[i].apply(this, args)];
+	      }
+	      return args[0];
+	    };
+	  },
+	  each: function each(obj, itr, scope) {
+	    if (!obj) {
+	      return;
+	    }
+	    if (ARR_EACH && obj.forEach && obj.forEach === ARR_EACH) {
+	      obj.forEach(itr, scope);
+	    } else if (obj.length === obj.length + 0) {
+	      var key = void 0;
+	      var l = void 0;
+	      for (key = 0, l = obj.length; key < l; key++) {
+	        if (key in obj && itr.call(scope, obj[key], key) === this.BREAK) {
+	          return;
+	        }
+	      }
+	    } else {
+	      for (var _key in obj) {
+	        if (itr.call(scope, obj[_key], _key) === this.BREAK) {
+	          return;
+	        }
+	      }
+	    }
+	  },
+	  defer: function defer(fnc) {
+	    setTimeout(fnc, 0);
+	  },
+	  debounce: function debounce(func, threshold, callImmediately) {
+	    var timeout = void 0;
+	    return function () {
+	      var obj = this;
+	      var args = arguments;
+	      function delayed() {
+	        timeout = null;
+	        if (!callImmediately) func.apply(obj, args);
+	      }
+	      var callNow = callImmediately || !timeout;
+	      clearTimeout(timeout);
+	      timeout = setTimeout(delayed, threshold);
+	      if (callNow) {
+	        func.apply(obj, args);
+	      }
+	    };
+	  },
+	  toArray: function toArray(obj) {
+	    if (obj.toArray) return obj.toArray();
+	    return ARR_SLICE.call(obj);
+	  },
+	  isUndefined: function isUndefined(obj) {
+	    return obj === undefined;
+	  },
+	  isNull: function isNull(obj) {
+	    return obj === null;
+	  },
+	  isNaN: function (_isNaN) {
+	    function isNaN(_x) {
+	      return _isNaN.apply(this, arguments);
+	    }
+	    isNaN.toString = function () {
+	      return _isNaN.toString();
+	    };
+	    return isNaN;
+	  }(function (obj) {
+	    return isNaN(obj);
+	  }),
+	  isArray: Array.isArray || function (obj) {
+	    return obj.constructor === Array;
+	  },
+	  isObject: function isObject(obj) {
+	    return obj === Object(obj);
+	  },
+	  isNumber: function isNumber(obj) {
+	    return obj === obj + 0;
+	  },
+	  isString: function isString(obj) {
+	    return obj === obj + '';
+	  },
+	  isBoolean: function isBoolean(obj) {
+	    return obj === false || obj === true;
+	  },
+	  isFunction: function isFunction(obj) {
+	    return obj instanceof Function;
+	  }
+	};
+	
+	var INTERPRETATIONS = [
+	{
+	  litmus: Common.isString,
+	  conversions: {
+	    THREE_CHAR_HEX: {
+	      read: function read(original) {
+	        var test = original.match(/^#([A-F0-9])([A-F0-9])([A-F0-9])$/i);
+	        if (test === null) {
+	          return false;
+	        }
+	        return {
+	          space: 'HEX',
+	          hex: parseInt('0x' + test[1].toString() + test[1].toString() + test[2].toString() + test[2].toString() + test[3].toString() + test[3].toString(), 0)
+	        };
+	      },
+	      write: colorToString
+	    },
+	    SIX_CHAR_HEX: {
+	      read: function read(original) {
+	        var test = original.match(/^#([A-F0-9]{6})$/i);
+	        if (test === null) {
+	          return false;
+	        }
+	        return {
+	          space: 'HEX',
+	          hex: parseInt('0x' + test[1].toString(), 0)
+	        };
+	      },
+	      write: colorToString
+	    },
+	    CSS_RGB: {
+	      read: function read(original) {
+	        var test = original.match(/^rgb\(\s*(.+)\s*,\s*(.+)\s*,\s*(.+)\s*\)/);
+	        if (test === null) {
+	          return false;
+	        }
+	        return {
+	          space: 'RGB',
+	          r: parseFloat(test[1]),
+	          g: parseFloat(test[2]),
+	          b: parseFloat(test[3])
+	        };
+	      },
+	      write: colorToString
+	    },
+	    CSS_RGBA: {
+	      read: function read(original) {
+	        var test = original.match(/^rgba\(\s*(.+)\s*,\s*(.+)\s*,\s*(.+)\s*,\s*(.+)\s*\)/);
+	        if (test === null) {
+	          return false;
+	        }
+	        return {
+	          space: 'RGB',
+	          r: parseFloat(test[1]),
+	          g: parseFloat(test[2]),
+	          b: parseFloat(test[3]),
+	          a: parseFloat(test[4])
+	        };
+	      },
+	      write: colorToString
+	    }
+	  }
+	},
+	{
+	  litmus: Common.isNumber,
+	  conversions: {
+	    HEX: {
+	      read: function read(original) {
+	        return {
+	          space: 'HEX',
+	          hex: original,
+	          conversionName: 'HEX'
+	        };
+	      },
+	      write: function write(color) {
+	        return color.hex;
+	      }
+	    }
+	  }
+	},
+	{
+	  litmus: Common.isArray,
+	  conversions: {
+	    RGB_ARRAY: {
+	      read: function read(original) {
+	        if (original.length !== 3) {
+	          return false;
+	        }
+	        return {
+	          space: 'RGB',
+	          r: original[0],
+	          g: original[1],
+	          b: original[2]
+	        };
+	      },
+	      write: function write(color) {
+	        return [color.r, color.g, color.b];
+	      }
+	    },
+	    RGBA_ARRAY: {
+	      read: function read(original) {
+	        if (original.length !== 4) return false;
+	        return {
+	          space: 'RGB',
+	          r: original[0],
+	          g: original[1],
+	          b: original[2],
+	          a: original[3]
+	        };
+	      },
+	      write: function write(color) {
+	        return [color.r, color.g, color.b, color.a];
+	      }
+	    }
+	  }
+	},
+	{
+	  litmus: Common.isObject,
+	  conversions: {
+	    RGBA_OBJ: {
+	      read: function read(original) {
+	        if (Common.isNumber(original.r) && Common.isNumber(original.g) && Common.isNumber(original.b) && Common.isNumber(original.a)) {
+	          return {
+	            space: 'RGB',
+	            r: original.r,
+	            g: original.g,
+	            b: original.b,
+	            a: original.a
+	          };
+	        }
+	        return false;
+	      },
+	      write: function write(color) {
+	        return {
+	          r: color.r,
+	          g: color.g,
+	          b: color.b,
+	          a: color.a
+	        };
+	      }
+	    },
+	    RGB_OBJ: {
+	      read: function read(original) {
+	        if (Common.isNumber(original.r) && Common.isNumber(original.g) && Common.isNumber(original.b)) {
+	          return {
+	            space: 'RGB',
+	            r: original.r,
+	            g: original.g,
+	            b: original.b
+	          };
+	        }
+	        return false;
+	      },
+	      write: function write(color) {
+	        return {
+	          r: color.r,
+	          g: color.g,
+	          b: color.b
+	        };
+	      }
+	    },
+	    HSVA_OBJ: {
+	      read: function read(original) {
+	        if (Common.isNumber(original.h) && Common.isNumber(original.s) && Common.isNumber(original.v) && Common.isNumber(original.a)) {
+	          return {
+	            space: 'HSV',
+	            h: original.h,
+	            s: original.s,
+	            v: original.v,
+	            a: original.a
+	          };
+	        }
+	        return false;
+	      },
+	      write: function write(color) {
+	        return {
+	          h: color.h,
+	          s: color.s,
+	          v: color.v,
+	          a: color.a
+	        };
+	      }
+	    },
+	    HSV_OBJ: {
+	      read: function read(original) {
+	        if (Common.isNumber(original.h) && Common.isNumber(original.s) && Common.isNumber(original.v)) {
+	          return {
+	            space: 'HSV',
+	            h: original.h,
+	            s: original.s,
+	            v: original.v
+	          };
+	        }
+	        return false;
+	      },
+	      write: function write(color) {
+	        return {
+	          h: color.h,
+	          s: color.s,
+	          v: color.v
+	        };
+	      }
+	    }
+	  }
+	}];
+	var result = void 0;
+	var toReturn = void 0;
+	var interpret = function interpret() {
+	  toReturn = false;
+	  var original = arguments.length > 1 ? Common.toArray(arguments) : arguments[0];
+	  Common.each(INTERPRETATIONS, function (family) {
+	    if (family.litmus(original)) {
+	      Common.each(family.conversions, function (conversion, conversionName) {
+	        result = conversion.read(original);
+	        if (toReturn === false && result !== false) {
+	          toReturn = result;
+	          result.conversionName = conversionName;
+	          result.conversion = conversion;
+	          return Common.BREAK;
+	        }
+	      });
+	      return Common.BREAK;
+	    }
+	  });
+	  return toReturn;
+	};
+	
+	var tmpComponent = void 0;
+	var ColorMath = {
+	  hsv_to_rgb: function hsv_to_rgb(h, s, v) {
+	    var hi = Math.floor(h / 60) % 6;
+	    var f = h / 60 - Math.floor(h / 60);
+	    var p = v * (1.0 - s);
+	    var q = v * (1.0 - f * s);
+	    var t = v * (1.0 - (1.0 - f) * s);
+	    var c = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][hi];
+	    return {
+	      r: c[0] * 255,
+	      g: c[1] * 255,
+	      b: c[2] * 255
+	    };
+	  },
+	  rgb_to_hsv: function rgb_to_hsv(r, g, b) {
+	    var min = Math.min(r, g, b);
+	    var max = Math.max(r, g, b);
+	    var delta = max - min;
+	    var h = void 0;
+	    var s = void 0;
+	    if (max !== 0) {
+	      s = delta / max;
+	    } else {
+	      return {
+	        h: NaN,
+	        s: 0,
+	        v: 0
+	      };
+	    }
+	    if (r === max) {
+	      h = (g - b) / delta;
+	    } else if (g === max) {
+	      h = 2 + (b - r) / delta;
+	    } else {
+	      h = 4 + (r - g) / delta;
+	    }
+	    h /= 6;
+	    if (h < 0) {
+	      h += 1;
+	    }
+	    return {
+	      h: h * 360,
+	      s: s,
+	      v: max / 255
+	    };
+	  },
+	  rgb_to_hex: function rgb_to_hex(r, g, b) {
+	    var hex = this.hex_with_component(0, 2, r);
+	    hex = this.hex_with_component(hex, 1, g);
+	    hex = this.hex_with_component(hex, 0, b);
+	    return hex;
+	  },
+	  component_from_hex: function component_from_hex(hex, componentIndex) {
+	    return hex >> componentIndex * 8 & 0xFF;
+	  },
+	  hex_with_component: function hex_with_component(hex, componentIndex, value) {
+	    return value << (tmpComponent = componentIndex * 8) | hex & ~(0xFF << tmpComponent);
+	  }
+	};
+	
+	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) {
+	  return typeof obj;
+	} : function (obj) {
+	  return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj;
+	};
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	var classCallCheck = function (instance, Constructor) {
+	  if (!(instance instanceof Constructor)) {
+	    throw new TypeError("Cannot call a class as a function");
+	  }
+	};
+	
+	var createClass = function () {
+	  function defineProperties(target, props) {
+	    for (var i = 0; i < props.length; i++) {
+	      var descriptor = props[i];
+	      descriptor.enumerable = descriptor.enumerable || false;
+	      descriptor.configurable = true;
+	      if ("value" in descriptor) descriptor.writable = true;
+	      Object.defineProperty(target, descriptor.key, descriptor);
+	    }
+	  }
+	
+	  return function (Constructor, protoProps, staticProps) {
+	    if (protoProps) defineProperties(Constructor.prototype, protoProps);
+	    if (staticProps) defineProperties(Constructor, staticProps);
+	    return Constructor;
+	  };
+	}();
+	
+	
+	
+	
+	
+	
+	
+	var get = function get(object, property, receiver) {
+	  if (object === null) object = Function.prototype;
+	  var desc = Object.getOwnPropertyDescriptor(object, property);
+	
+	  if (desc === undefined) {
+	    var parent = Object.getPrototypeOf(object);
+	
+	    if (parent === null) {
+	      return undefined;
+	    } else {
+	      return get(parent, property, receiver);
+	    }
+	  } else if ("value" in desc) {
+	    return desc.value;
+	  } else {
+	    var getter = desc.get;
+	
+	    if (getter === undefined) {
+	      return undefined;
+	    }
+	
+	    return getter.call(receiver);
+	  }
+	};
+	
+	var inherits = function (subClass, superClass) {
+	  if (typeof superClass !== "function" && superClass !== null) {
+	    throw new TypeError("Super expression must either be null or a function, not " + typeof superClass);
+	  }
+	
+	  subClass.prototype = Object.create(superClass && superClass.prototype, {
+	    constructor: {
+	      value: subClass,
+	      enumerable: false,
+	      writable: true,
+	      configurable: true
+	    }
+	  });
+	  if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass;
+	};
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	var possibleConstructorReturn = function (self, call) {
+	  if (!self) {
+	    throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
+	  }
+	
+	  return call && (typeof call === "object" || typeof call === "function") ? call : self;
+	};
+	
+	var Color = function () {
+	  function Color() {
+	    classCallCheck(this, Color);
+	    this.__state = interpret.apply(this, arguments);
+	    if (this.__state === false) {
+	      throw new Error('Failed to interpret color arguments');
+	    }
+	    this.__state.a = this.__state.a || 1;
+	  }
+	  createClass(Color, [{
+	    key: 'toString',
+	    value: function toString() {
+	      return colorToString(this);
+	    }
+	  }, {
+	    key: 'toHexString',
+	    value: function toHexString() {
+	      return colorToString(this, true);
+	    }
+	  }, {
+	    key: 'toOriginal',
+	    value: function toOriginal() {
+	      return this.__state.conversion.write(this);
+	    }
+	  }]);
+	  return Color;
+	}();
+	function defineRGBComponent(target, component, componentHexIndex) {
+	  Object.defineProperty(target, component, {
+	    get: function get$$1() {
+	      if (this.__state.space === 'RGB') {
+	        return this.__state[component];
+	      }
+	      Color.recalculateRGB(this, component, componentHexIndex);
+	      return this.__state[component];
+	    },
+	    set: function set$$1(v) {
+	      if (this.__state.space !== 'RGB') {
+	        Color.recalculateRGB(this, component, componentHexIndex);
+	        this.__state.space = 'RGB';
+	      }
+	      this.__state[component] = v;
+	    }
+	  });
+	}
+	function defineHSVComponent(target, component) {
+	  Object.defineProperty(target, component, {
+	    get: function get$$1() {
+	      if (this.__state.space === 'HSV') {
+	        return this.__state[component];
+	      }
+	      Color.recalculateHSV(this);
+	      return this.__state[component];
+	    },
+	    set: function set$$1(v) {
+	      if (this.__state.space !== 'HSV') {
+	        Color.recalculateHSV(this);
+	        this.__state.space = 'HSV';
+	      }
+	      this.__state[component] = v;
+	    }
+	  });
+	}
+	Color.recalculateRGB = function (color, component, componentHexIndex) {
+	  if (color.__state.space === 'HEX') {
+	    color.__state[component] = ColorMath.component_from_hex(color.__state.hex, componentHexIndex);
+	  } else if (color.__state.space === 'HSV') {
+	    Common.extend(color.__state, ColorMath.hsv_to_rgb(color.__state.h, color.__state.s, color.__state.v));
+	  } else {
+	    throw new Error('Corrupted color state');
+	  }
+	};
+	Color.recalculateHSV = function (color) {
+	  var result = ColorMath.rgb_to_hsv(color.r, color.g, color.b);
+	  Common.extend(color.__state, {
+	    s: result.s,
+	    v: result.v
+	  });
+	  if (!Common.isNaN(result.h)) {
+	    color.__state.h = result.h;
+	  } else if (Common.isUndefined(color.__state.h)) {
+	    color.__state.h = 0;
+	  }
+	};
+	Color.COMPONENTS = ['r', 'g', 'b', 'h', 's', 'v', 'hex', 'a'];
+	defineRGBComponent(Color.prototype, 'r', 2);
+	defineRGBComponent(Color.prototype, 'g', 1);
+	defineRGBComponent(Color.prototype, 'b', 0);
+	defineHSVComponent(Color.prototype, 'h');
+	defineHSVComponent(Color.prototype, 's');
+	defineHSVComponent(Color.prototype, 'v');
+	Object.defineProperty(Color.prototype, 'a', {
+	  get: function get$$1() {
+	    return this.__state.a;
+	  },
+	  set: function set$$1(v) {
+	    this.__state.a = v;
+	  }
+	});
+	Object.defineProperty(Color.prototype, 'hex', {
+	  get: function get$$1() {
+	    if (this.__state.space !== 'HEX') {
+	      this.__state.hex = ColorMath.rgb_to_hex(this.r, this.g, this.b);
+	      this.__state.space = 'HEX';
+	    }
+	    return this.__state.hex;
+	  },
+	  set: function set$$1(v) {
+	    this.__state.space = 'HEX';
+	    this.__state.hex = v;
+	  }
+	});
+	
+	var Controller = function () {
+	  function Controller(object, property) {
+	    classCallCheck(this, Controller);
+	    this.initialValue = object[property];
+	    this.domElement = document.createElement('div');
+	    this.object = object;
+	    this.property = property;
+	    this.__onChange = undefined;
+	    this.__onFinishChange = undefined;
+	  }
+	  createClass(Controller, [{
+	    key: 'onChange',
+	    value: function onChange(fnc) {
+	      this.__onChange = fnc;
+	      return this;
+	    }
+	  }, {
+	    key: 'onFinishChange',
+	    value: function onFinishChange(fnc) {
+	      this.__onFinishChange = fnc;
+	      return this;
+	    }
+	  }, {
+	    key: 'setValue',
+	    value: function setValue(newValue) {
+	      this.object[this.property] = newValue;
+	      if (this.__onChange) {
+	        this.__onChange.call(this, newValue);
+	      }
+	      this.updateDisplay();
+	      return this;
+	    }
+	  }, {
+	    key: 'getValue',
+	    value: function getValue() {
+	      return this.object[this.property];
+	    }
+	  }, {
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      return this;
+	    }
+	  }, {
+	    key: 'isModified',
+	    value: function isModified() {
+	      return this.initialValue !== this.getValue();
+	    }
+	  }]);
+	  return Controller;
+	}();
+	
+	var EVENT_MAP = {
+	  HTMLEvents: ['change'],
+	  MouseEvents: ['click', 'mousemove', 'mousedown', 'mouseup', 'mouseover'],
+	  KeyboardEvents: ['keydown']
+	};
+	var EVENT_MAP_INV = {};
+	Common.each(EVENT_MAP, function (v, k) {
+	  Common.each(v, function (e) {
+	    EVENT_MAP_INV[e] = k;
+	  });
+	});
+	var CSS_VALUE_PIXELS = /(\d+(\.\d+)?)px/;
+	function cssValueToPixels(val) {
+	  if (val === '0' || Common.isUndefined(val)) {
+	    return 0;
+	  }
+	  var match = val.match(CSS_VALUE_PIXELS);
+	  if (!Common.isNull(match)) {
+	    return parseFloat(match[1]);
+	  }
+	  return 0;
+	}
+	var dom = {
+	  makeSelectable: function makeSelectable(elem, selectable) {
+	    if (elem === undefined || elem.style === undefined) return;
+	    elem.onselectstart = selectable ? function () {
+	      return false;
+	    } : function () {};
+	    elem.style.MozUserSelect = selectable ? 'auto' : 'none';
+	    elem.style.KhtmlUserSelect = selectable ? 'auto' : 'none';
+	    elem.unselectable = selectable ? 'on' : 'off';
+	  },
+	  makeFullscreen: function makeFullscreen(elem, hor, vert) {
+	    var vertical = vert;
+	    var horizontal = hor;
+	    if (Common.isUndefined(horizontal)) {
+	      horizontal = true;
+	    }
+	    if (Common.isUndefined(vertical)) {
+	      vertical = true;
+	    }
+	    elem.style.position = 'absolute';
+	    if (horizontal) {
+	      elem.style.left = 0;
+	      elem.style.right = 0;
+	    }
+	    if (vertical) {
+	      elem.style.top = 0;
+	      elem.style.bottom = 0;
+	    }
+	  },
+	  fakeEvent: function fakeEvent(elem, eventType, pars, aux) {
+	    var params = pars || {};
+	    var className = EVENT_MAP_INV[eventType];
+	    if (!className) {
+	      throw new Error('Event type ' + eventType + ' not supported.');
+	    }
+	    var evt = document.createEvent(className);
+	    switch (className) {
+	      case 'MouseEvents':
+	        {
+	          var clientX = params.x || params.clientX || 0;
+	          var clientY = params.y || params.clientY || 0;
+	          evt.initMouseEvent(eventType, params.bubbles || false, params.cancelable || true, window, params.clickCount || 1, 0,
+	          0,
+	          clientX,
+	          clientY,
+	          false, false, false, false, 0, null);
+	          break;
+	        }
+	      case 'KeyboardEvents':
+	        {
+	          var init = evt.initKeyboardEvent || evt.initKeyEvent;
+	          Common.defaults(params, {
+	            cancelable: true,
+	            ctrlKey: false,
+	            altKey: false,
+	            shiftKey: false,
+	            metaKey: false,
+	            keyCode: undefined,
+	            charCode: undefined
+	          });
+	          init(eventType, params.bubbles || false, params.cancelable, window, params.ctrlKey, params.altKey, params.shiftKey, params.metaKey, params.keyCode, params.charCode);
+	          break;
+	        }
+	      default:
+	        {
+	          evt.initEvent(eventType, params.bubbles || false, params.cancelable || true);
+	          break;
+	        }
+	    }
+	    Common.defaults(evt, aux);
+	    elem.dispatchEvent(evt);
+	  },
+	  bind: function bind(elem, event, func, newBool) {
+	    var bool = newBool || false;
+	    if (elem.addEventListener) {
+	      elem.addEventListener(event, func, bool);
+	    } else if (elem.attachEvent) {
+	      elem.attachEvent('on' + event, func);
+	    }
+	    return dom;
+	  },
+	  unbind: function unbind(elem, event, func, newBool) {
+	    var bool = newBool || false;
+	    if (elem.removeEventListener) {
+	      elem.removeEventListener(event, func, bool);
+	    } else if (elem.detachEvent) {
+	      elem.detachEvent('on' + event, func);
+	    }
+	    return dom;
+	  },
+	  addClass: function addClass(elem, className) {
+	    if (elem.className === undefined) {
+	      elem.className = className;
+	    } else if (elem.className !== className) {
+	      var classes = elem.className.split(/ +/);
+	      if (classes.indexOf(className) === -1) {
+	        classes.push(className);
+	        elem.className = classes.join(' ').replace(/^\s+/, '').replace(/\s+$/, '');
+	      }
+	    }
+	    return dom;
+	  },
+	  removeClass: function removeClass(elem, className) {
+	    if (className) {
+	      if (elem.className === className) {
+	        elem.removeAttribute('class');
+	      } else {
+	        var classes = elem.className.split(/ +/);
+	        var index = classes.indexOf(className);
+	        if (index !== -1) {
+	          classes.splice(index, 1);
+	          elem.className = classes.join(' ');
+	        }
+	      }
+	    } else {
+	      elem.className = undefined;
+	    }
+	    return dom;
+	  },
+	  hasClass: function hasClass(elem, className) {
+	    return new RegExp('(?:^|\\s+)' + className + '(?:\\s+|$)').test(elem.className) || false;
+	  },
+	  getWidth: function getWidth(elem) {
+	    var style = getComputedStyle(elem);
+	    return cssValueToPixels(style['border-left-width']) + cssValueToPixels(style['border-right-width']) + cssValueToPixels(style['padding-left']) + cssValueToPixels(style['padding-right']) + cssValueToPixels(style.width);
+	  },
+	  getHeight: function getHeight(elem) {
+	    var style = getComputedStyle(elem);
+	    return cssValueToPixels(style['border-top-width']) + cssValueToPixels(style['border-bottom-width']) + cssValueToPixels(style['padding-top']) + cssValueToPixels(style['padding-bottom']) + cssValueToPixels(style.height);
+	  },
+	  getOffset: function getOffset(el) {
+	    var elem = el;
+	    var offset = { left: 0, top: 0 };
+	    if (elem.offsetParent) {
+	      do {
+	        offset.left += elem.offsetLeft;
+	        offset.top += elem.offsetTop;
+	        elem = elem.offsetParent;
+	      } while (elem);
+	    }
+	    return offset;
+	  },
+	  isActive: function isActive(elem) {
+	    return elem === document.activeElement && (elem.type || elem.href);
+	  }
+	};
+	
+	var BooleanController = function (_Controller) {
+	  inherits(BooleanController, _Controller);
+	  function BooleanController(object, property) {
+	    classCallCheck(this, BooleanController);
+	    var _this2 = possibleConstructorReturn(this, (BooleanController.__proto__ || Object.getPrototypeOf(BooleanController)).call(this, object, property));
+	    var _this = _this2;
+	    _this2.__prev = _this2.getValue();
+	    _this2.__checkbox = document.createElement('input');
+	    _this2.__checkbox.setAttribute('type', 'checkbox');
+	    function onChange() {
+	      _this.setValue(!_this.__prev);
+	    }
+	    dom.bind(_this2.__checkbox, 'change', onChange, false);
+	    _this2.domElement.appendChild(_this2.__checkbox);
+	    _this2.updateDisplay();
+	    return _this2;
+	  }
+	  createClass(BooleanController, [{
+	    key: 'setValue',
+	    value: function setValue(v) {
+	      var toReturn = get(BooleanController.prototype.__proto__ || Object.getPrototypeOf(BooleanController.prototype), 'setValue', this).call(this, v);
+	      if (this.__onFinishChange) {
+	        this.__onFinishChange.call(this, this.getValue());
+	      }
+	      this.__prev = this.getValue();
+	      return toReturn;
+	    }
+	  }, {
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      if (this.getValue() === true) {
+	        this.__checkbox.setAttribute('checked', 'checked');
+	        this.__checkbox.checked = true;
+	        this.__prev = true;
+	      } else {
+	        this.__checkbox.checked = false;
+	        this.__prev = false;
+	      }
+	      return get(BooleanController.prototype.__proto__ || Object.getPrototypeOf(BooleanController.prototype), 'updateDisplay', this).call(this);
+	    }
+	  }]);
+	  return BooleanController;
+	}(Controller);
+	
+	var OptionController = function (_Controller) {
+	  inherits(OptionController, _Controller);
+	  function OptionController(object, property, opts) {
+	    classCallCheck(this, OptionController);
+	    var _this2 = possibleConstructorReturn(this, (OptionController.__proto__ || Object.getPrototypeOf(OptionController)).call(this, object, property));
+	    var options = opts;
+	    var _this = _this2;
+	    _this2.__select = document.createElement('select');
+	    if (Common.isArray(options)) {
+	      var map = {};
+	      Common.each(options, function (element) {
+	        map[element] = element;
+	      });
+	      options = map;
+	    }
+	    Common.each(options, function (value, key) {
+	      var opt = document.createElement('option');
+	      opt.innerHTML = key;
+	      opt.setAttribute('value', value);
+	      _this.__select.appendChild(opt);
+	    });
+	    _this2.updateDisplay();
+	    dom.bind(_this2.__select, 'change', function () {
+	      var desiredValue = this.options[this.selectedIndex].value;
+	      _this.setValue(desiredValue);
+	    });
+	    _this2.domElement.appendChild(_this2.__select);
+	    return _this2;
+	  }
+	  createClass(OptionController, [{
+	    key: 'setValue',
+	    value: function setValue(v) {
+	      var toReturn = get(OptionController.prototype.__proto__ || Object.getPrototypeOf(OptionController.prototype), 'setValue', this).call(this, v);
+	      if (this.__onFinishChange) {
+	        this.__onFinishChange.call(this, this.getValue());
+	      }
+	      return toReturn;
+	    }
+	  }, {
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      if (dom.isActive(this.__select)) return this;
+	      this.__select.value = this.getValue();
+	      return get(OptionController.prototype.__proto__ || Object.getPrototypeOf(OptionController.prototype), 'updateDisplay', this).call(this);
+	    }
+	  }]);
+	  return OptionController;
+	}(Controller);
+	
+	var StringController = function (_Controller) {
+	  inherits(StringController, _Controller);
+	  function StringController(object, property) {
+	    classCallCheck(this, StringController);
+	    var _this2 = possibleConstructorReturn(this, (StringController.__proto__ || Object.getPrototypeOf(StringController)).call(this, object, property));
+	    var _this = _this2;
+	    function onChange() {
+	      _this.setValue(_this.__input.value);
+	    }
+	    function onBlur() {
+	      if (_this.__onFinishChange) {
+	        _this.__onFinishChange.call(_this, _this.getValue());
+	      }
+	    }
+	    _this2.__input = document.createElement('input');
+	    _this2.__input.setAttribute('type', 'text');
+	    dom.bind(_this2.__input, 'keyup', onChange);
+	    dom.bind(_this2.__input, 'change', onChange);
+	    dom.bind(_this2.__input, 'blur', onBlur);
+	    dom.bind(_this2.__input, 'keydown', function (e) {
+	      if (e.keyCode === 13) {
+	        this.blur();
+	      }
+	    });
+	    _this2.updateDisplay();
+	    _this2.domElement.appendChild(_this2.__input);
+	    return _this2;
+	  }
+	  createClass(StringController, [{
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      if (!dom.isActive(this.__input)) {
+	        this.__input.value = this.getValue();
+	      }
+	      return get(StringController.prototype.__proto__ || Object.getPrototypeOf(StringController.prototype), 'updateDisplay', this).call(this);
+	    }
+	  }]);
+	  return StringController;
+	}(Controller);
+	
+	function numDecimals(x) {
+	  var _x = x.toString();
+	  if (_x.indexOf('.') > -1) {
+	    return _x.length - _x.indexOf('.') - 1;
+	  }
+	  return 0;
+	}
+	var NumberController = function (_Controller) {
+	  inherits(NumberController, _Controller);
+	  function NumberController(object, property, params) {
+	    classCallCheck(this, NumberController);
+	    var _this = possibleConstructorReturn(this, (NumberController.__proto__ || Object.getPrototypeOf(NumberController)).call(this, object, property));
+	    var _params = params || {};
+	    _this.__min = _params.min;
+	    _this.__max = _params.max;
+	    _this.__step = _params.step;
+	    if (Common.isUndefined(_this.__step)) {
+	      if (_this.initialValue === 0) {
+	        _this.__impliedStep = 1;
+	      } else {
+	        _this.__impliedStep = Math.pow(10, Math.floor(Math.log(Math.abs(_this.initialValue)) / Math.LN10)) / 10;
+	      }
+	    } else {
+	      _this.__impliedStep = _this.__step;
+	    }
+	    _this.__precision = numDecimals(_this.__impliedStep);
+	    return _this;
+	  }
+	  createClass(NumberController, [{
+	    key: 'setValue',
+	    value: function setValue(v) {
+	      var _v = v;
+	      if (this.__min !== undefined && _v < this.__min) {
+	        _v = this.__min;
+	      } else if (this.__max !== undefined && _v > this.__max) {
+	        _v = this.__max;
+	      }
+	      if (this.__step !== undefined && _v % this.__step !== 0) {
+	        _v = Math.round(_v / this.__step) * this.__step;
+	      }
+	      return get(NumberController.prototype.__proto__ || Object.getPrototypeOf(NumberController.prototype), 'setValue', this).call(this, _v);
+	    }
+	  }, {
+	    key: 'min',
+	    value: function min(minValue) {
+	      this.__min = minValue;
+	      return this;
+	    }
+	  }, {
+	    key: 'max',
+	    value: function max(maxValue) {
+	      this.__max = maxValue;
+	      return this;
+	    }
+	  }, {
+	    key: 'step',
+	    value: function step(stepValue) {
+	      this.__step = stepValue;
+	      this.__impliedStep = stepValue;
+	      this.__precision = numDecimals(stepValue);
+	      return this;
+	    }
+	  }]);
+	  return NumberController;
+	}(Controller);
+	
+	function roundToDecimal(value, decimals) {
+	  var tenTo = Math.pow(10, decimals);
+	  return Math.round(value * tenTo) / tenTo;
+	}
+	var NumberControllerBox = function (_NumberController) {
+	  inherits(NumberControllerBox, _NumberController);
+	  function NumberControllerBox(object, property, params) {
+	    classCallCheck(this, NumberControllerBox);
+	    var _this2 = possibleConstructorReturn(this, (NumberControllerBox.__proto__ || Object.getPrototypeOf(NumberControllerBox)).call(this, object, property, params));
+	    _this2.__truncationSuspended = false;
+	    var _this = _this2;
+	    var prevY = void 0;
+	    function onChange() {
+	      var attempted = parseFloat(_this.__input.value);
+	      if (!Common.isNaN(attempted)) {
+	        _this.setValue(attempted);
+	      }
+	    }
+	    function onFinish() {
+	      if (_this.__onFinishChange) {
+	        _this.__onFinishChange.call(_this, _this.getValue());
+	      }
+	    }
+	    function onBlur() {
+	      onFinish();
+	    }
+	    function onMouseDrag(e) {
+	      var diff = prevY - e.clientY;
+	      _this.setValue(_this.getValue() + diff * _this.__impliedStep);
+	      prevY = e.clientY;
+	    }
+	    function onMouseUp() {
+	      dom.unbind(window, 'mousemove', onMouseDrag);
+	      dom.unbind(window, 'mouseup', onMouseUp);
+	      onFinish();
+	    }
+	    function onMouseDown(e) {
+	      dom.bind(window, 'mousemove', onMouseDrag);
+	      dom.bind(window, 'mouseup', onMouseUp);
+	      prevY = e.clientY;
+	    }
+	    _this2.__input = document.createElement('input');
+	    _this2.__input.setAttribute('type', 'text');
+	    dom.bind(_this2.__input, 'change', onChange);
+	    dom.bind(_this2.__input, 'blur', onBlur);
+	    dom.bind(_this2.__input, 'mousedown', onMouseDown);
+	    dom.bind(_this2.__input, 'keydown', function (e) {
+	      if (e.keyCode === 13) {
+	        _this.__truncationSuspended = true;
+	        this.blur();
+	        _this.__truncationSuspended = false;
+	        onFinish();
+	      }
+	    });
+	    _this2.updateDisplay();
+	    _this2.domElement.appendChild(_this2.__input);
+	    return _this2;
+	  }
+	  createClass(NumberControllerBox, [{
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      this.__input.value = this.__truncationSuspended ? this.getValue() : roundToDecimal(this.getValue(), this.__precision);
+	      return get(NumberControllerBox.prototype.__proto__ || Object.getPrototypeOf(NumberControllerBox.prototype), 'updateDisplay', this).call(this);
+	    }
+	  }]);
+	  return NumberControllerBox;
+	}(NumberController);
+	
+	function map(v, i1, i2, o1, o2) {
+	  return o1 + (o2 - o1) * ((v - i1) / (i2 - i1));
+	}
+	var NumberControllerSlider = function (_NumberController) {
+	  inherits(NumberControllerSlider, _NumberController);
+	  function NumberControllerSlider(object, property, min, max, step) {
+	    classCallCheck(this, NumberControllerSlider);
+	    var _this2 = possibleConstructorReturn(this, (NumberControllerSlider.__proto__ || Object.getPrototypeOf(NumberControllerSlider)).call(this, object, property, { min: min, max: max, step: step }));
+	    var _this = _this2;
+	    _this2.__background = document.createElement('div');
+	    _this2.__foreground = document.createElement('div');
+	    dom.bind(_this2.__background, 'mousedown', onMouseDown);
+	    dom.bind(_this2.__background, 'touchstart', onTouchStart);
+	    dom.addClass(_this2.__background, 'slider');
+	    dom.addClass(_this2.__foreground, 'slider-fg');
+	    function onMouseDown(e) {
+	      document.activeElement.blur();
+	      dom.bind(window, 'mousemove', onMouseDrag);
+	      dom.bind(window, 'mouseup', onMouseUp);
+	      onMouseDrag(e);
+	    }
+	    function onMouseDrag(e) {
+	      e.preventDefault();
+	      var bgRect = _this.__background.getBoundingClientRect();
+	      _this.setValue(map(e.clientX, bgRect.left, bgRect.right, _this.__min, _this.__max));
+	      return false;
+	    }
+	    function onMouseUp() {
+	      dom.unbind(window, 'mousemove', onMouseDrag);
+	      dom.unbind(window, 'mouseup', onMouseUp);
+	      if (_this.__onFinishChange) {
+	        _this.__onFinishChange.call(_this, _this.getValue());
+	      }
+	    }
+	    function onTouchStart(e) {
+	      if (e.touches.length !== 1) {
+	        return;
+	      }
+	      dom.bind(window, 'touchmove', onTouchMove);
+	      dom.bind(window, 'touchend', onTouchEnd);
+	      onTouchMove(e);
+	    }
+	    function onTouchMove(e) {
+	      var clientX = e.touches[0].clientX;
+	      var bgRect = _this.__background.getBoundingClientRect();
+	      _this.setValue(map(clientX, bgRect.left, bgRect.right, _this.__min, _this.__max));
+	    }
+	    function onTouchEnd() {
+	      dom.unbind(window, 'touchmove', onTouchMove);
+	      dom.unbind(window, 'touchend', onTouchEnd);
+	      if (_this.__onFinishChange) {
+	        _this.__onFinishChange.call(_this, _this.getValue());
+	      }
+	    }
+	    _this2.updateDisplay();
+	    _this2.__background.appendChild(_this2.__foreground);
+	    _this2.domElement.appendChild(_this2.__background);
+	    return _this2;
+	  }
+	  createClass(NumberControllerSlider, [{
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      var pct = (this.getValue() - this.__min) / (this.__max - this.__min);
+	      this.__foreground.style.width = pct * 100 + '%';
+	      return get(NumberControllerSlider.prototype.__proto__ || Object.getPrototypeOf(NumberControllerSlider.prototype), 'updateDisplay', this).call(this);
+	    }
+	  }]);
+	  return NumberControllerSlider;
+	}(NumberController);
+	
+	var FunctionController = function (_Controller) {
+	  inherits(FunctionController, _Controller);
+	  function FunctionController(object, property, text) {
+	    classCallCheck(this, FunctionController);
+	    var _this2 = possibleConstructorReturn(this, (FunctionController.__proto__ || Object.getPrototypeOf(FunctionController)).call(this, object, property));
+	    var _this = _this2;
+	    _this2.__button = document.createElement('div');
+	    _this2.__button.innerHTML = text === undefined ? 'Fire' : text;
+	    dom.bind(_this2.__button, 'click', function (e) {
+	      e.preventDefault();
+	      _this.fire();
+	      return false;
+	    });
+	    dom.addClass(_this2.__button, 'button');
+	    _this2.domElement.appendChild(_this2.__button);
+	    return _this2;
+	  }
+	  createClass(FunctionController, [{
+	    key: 'fire',
+	    value: function fire() {
+	      if (this.__onChange) {
+	        this.__onChange.call(this);
+	      }
+	      this.getValue().call(this.object);
+	      if (this.__onFinishChange) {
+	        this.__onFinishChange.call(this, this.getValue());
+	      }
+	    }
+	  }]);
+	  return FunctionController;
+	}(Controller);
+	
+	var ColorController = function (_Controller) {
+	  inherits(ColorController, _Controller);
+	  function ColorController(object, property) {
+	    classCallCheck(this, ColorController);
+	    var _this2 = possibleConstructorReturn(this, (ColorController.__proto__ || Object.getPrototypeOf(ColorController)).call(this, object, property));
+	    _this2.__color = new Color(_this2.getValue());
+	    _this2.__temp = new Color(0);
+	    var _this = _this2;
+	    _this2.domElement = document.createElement('div');
+	    dom.makeSelectable(_this2.domElement, false);
+	    _this2.__selector = document.createElement('div');
+	    _this2.__selector.className = 'selector';
+	    _this2.__saturation_field = document.createElement('div');
+	    _this2.__saturation_field.className = 'saturation-field';
+	    _this2.__field_knob = document.createElement('div');
+	    _this2.__field_knob.className = 'field-knob';
+	    _this2.__field_knob_border = '2px solid ';
+	    _this2.__hue_knob = document.createElement('div');
+	    _this2.__hue_knob.className = 'hue-knob';
+	    _this2.__hue_field = document.createElement('div');
+	    _this2.__hue_field.className = 'hue-field';
+	    _this2.__input = document.createElement('input');
+	    _this2.__input.type = 'text';
+	    _this2.__input_textShadow = '0 1px 1px ';
+	    dom.bind(_this2.__input, 'keydown', function (e) {
+	      if (e.keyCode === 13) {
+	        onBlur.call(this);
+	      }
+	    });
+	    dom.bind(_this2.__input, 'blur', onBlur);
+	    dom.bind(_this2.__selector, 'mousedown', function ()        {
+	      dom.addClass(this, 'drag').bind(window, 'mouseup', function ()        {
+	        dom.removeClass(_this.__selector, 'drag');
+	      });
+	    });
+	    dom.bind(_this2.__selector, 'touchstart', function ()        {
+	      dom.addClass(this, 'drag').bind(window, 'touchend', function ()        {
+	        dom.removeClass(_this.__selector, 'drag');
+	      });
+	    });
+	    var valueField = document.createElement('div');
+	    Common.extend(_this2.__selector.style, {
+	      width: '122px',
+	      height: '102px',
+	      padding: '3px',
+	      backgroundColor: '#222',
+	      boxShadow: '0px 1px 3px rgba(0,0,0,0.3)'
+	    });
+	    Common.extend(_this2.__field_knob.style, {
+	      position: 'absolute',
+	      width: '12px',
+	      height: '12px',
+	      border: _this2.__field_knob_border + (_this2.__color.v < 0.5 ? '#fff' : '#000'),
+	      boxShadow: '0px 1px 3px rgba(0,0,0,0.5)',
+	      borderRadius: '12px',
+	      zIndex: 1
+	    });
+	    Common.extend(_this2.__hue_knob.style, {
+	      position: 'absolute',
+	      width: '15px',
+	      height: '2px',
+	      borderRight: '4px solid #fff',
+	      zIndex: 1
+	    });
+	    Common.extend(_this2.__saturation_field.style, {
+	      width: '100px',
+	      height: '100px',
+	      border: '1px solid #555',
+	      marginRight: '3px',
+	      display: 'inline-block',
+	      cursor: 'pointer'
+	    });
+	    Common.extend(valueField.style, {
+	      width: '100%',
+	      height: '100%',
+	      background: 'none'
+	    });
+	    linearGradient(valueField, 'top', 'rgba(0,0,0,0)', '#000');
+	    Common.extend(_this2.__hue_field.style, {
+	      width: '15px',
+	      height: '100px',
+	      border: '1px solid #555',
+	      cursor: 'ns-resize',
+	      position: 'absolute',
+	      top: '3px',
+	      right: '3px'
+	    });
+	    hueGradient(_this2.__hue_field);
+	    Common.extend(_this2.__input.style, {
+	      outline: 'none',
+	      textAlign: 'center',
+	      color: '#fff',
+	      border: 0,
+	      fontWeight: 'bold',
+	      textShadow: _this2.__input_textShadow + 'rgba(0,0,0,0.7)'
+	    });
+	    dom.bind(_this2.__saturation_field, 'mousedown', fieldDown);
+	    dom.bind(_this2.__saturation_field, 'touchstart', fieldDown);
+	    dom.bind(_this2.__field_knob, 'mousedown', fieldDown);
+	    dom.bind(_this2.__field_knob, 'touchstart', fieldDown);
+	    dom.bind(_this2.__hue_field, 'mousedown', fieldDownH);
+	    dom.bind(_this2.__hue_field, 'touchstart', fieldDownH);
+	    function fieldDown(e) {
+	      setSV(e);
+	      dom.bind(window, 'mousemove', setSV);
+	      dom.bind(window, 'touchmove', setSV);
+	      dom.bind(window, 'mouseup', fieldUpSV);
+	      dom.bind(window, 'touchend', fieldUpSV);
+	    }
+	    function fieldDownH(e) {
+	      setH(e);
+	      dom.bind(window, 'mousemove', setH);
+	      dom.bind(window, 'touchmove', setH);
+	      dom.bind(window, 'mouseup', fieldUpH);
+	      dom.bind(window, 'touchend', fieldUpH);
+	    }
+	    function fieldUpSV() {
+	      dom.unbind(window, 'mousemove', setSV);
+	      dom.unbind(window, 'touchmove', setSV);
+	      dom.unbind(window, 'mouseup', fieldUpSV);
+	      dom.unbind(window, 'touchend', fieldUpSV);
+	      onFinish();
+	    }
+	    function fieldUpH() {
+	      dom.unbind(window, 'mousemove', setH);
+	      dom.unbind(window, 'touchmove', setH);
+	      dom.unbind(window, 'mouseup', fieldUpH);
+	      dom.unbind(window, 'touchend', fieldUpH);
+	      onFinish();
+	    }
+	    function onBlur() {
+	      var i = interpret(this.value);
+	      if (i !== false) {
+	        _this.__color.__state = i;
+	        _this.setValue(_this.__color.toOriginal());
+	      } else {
+	        this.value = _this.__color.toString();
+	      }
+	    }
+	    function onFinish() {
+	      if (_this.__onFinishChange) {
+	        _this.__onFinishChange.call(_this, _this.__color.toOriginal());
+	      }
+	    }
+	    _this2.__saturation_field.appendChild(valueField);
+	    _this2.__selector.appendChild(_this2.__field_knob);
+	    _this2.__selector.appendChild(_this2.__saturation_field);
+	    _this2.__selector.appendChild(_this2.__hue_field);
+	    _this2.__hue_field.appendChild(_this2.__hue_knob);
+	    _this2.domElement.appendChild(_this2.__input);
+	    _this2.domElement.appendChild(_this2.__selector);
+	    _this2.updateDisplay();
+	    function setSV(e) {
+	      if (e.type.indexOf('touch') === -1) {
+	        e.preventDefault();
+	      }
+	      var fieldRect = _this.__saturation_field.getBoundingClientRect();
+	      var _ref = e.touches && e.touches[0] || e,
+	          clientX = _ref.clientX,
+	          clientY = _ref.clientY;
+	      var s = (clientX - fieldRect.left) / (fieldRect.right - fieldRect.left);
+	      var v = 1 - (clientY - fieldRect.top) / (fieldRect.bottom - fieldRect.top);
+	      if (v > 1) {
+	        v = 1;
+	      } else if (v < 0) {
+	        v = 0;
+	      }
+	      if (s > 1) {
+	        s = 1;
+	      } else if (s < 0) {
+	        s = 0;
+	      }
+	      _this.__color.v = v;
+	      _this.__color.s = s;
+	      _this.setValue(_this.__color.toOriginal());
+	      return false;
+	    }
+	    function setH(e) {
+	      if (e.type.indexOf('touch') === -1) {
+	        e.preventDefault();
+	      }
+	      var fieldRect = _this.__hue_field.getBoundingClientRect();
+	      var _ref2 = e.touches && e.touches[0] || e,
+	          clientY = _ref2.clientY;
+	      var h = 1 - (clientY - fieldRect.top) / (fieldRect.bottom - fieldRect.top);
+	      if (h > 1) {
+	        h = 1;
+	      } else if (h < 0) {
+	        h = 0;
+	      }
+	      _this.__color.h = h * 360;
+	      _this.setValue(_this.__color.toOriginal());
+	      return false;
+	    }
+	    return _this2;
+	  }
+	  createClass(ColorController, [{
+	    key: 'updateDisplay',
+	    value: function updateDisplay() {
+	      var i = interpret(this.getValue());
+	      if (i !== false) {
+	        var mismatch = false;
+	        Common.each(Color.COMPONENTS, function (component) {
+	          if (!Common.isUndefined(i[component]) && !Common.isUndefined(this.__color.__state[component]) && i[component] !== this.__color.__state[component]) {
+	            mismatch = true;
+	            return {};
+	          }
+	        }, this);
+	        if (mismatch) {
+	          Common.extend(this.__color.__state, i);
+	        }
+	      }
+	      Common.extend(this.__temp.__state, this.__color.__state);
+	      this.__temp.a = 1;
+	      var flip = this.__color.v < 0.5 || this.__color.s > 0.5 ? 255 : 0;
+	      var _flip = 255 - flip;
+	      Common.extend(this.__field_knob.style, {
+	        marginLeft: 100 * this.__color.s - 7 + 'px',
+	        marginTop: 100 * (1 - this.__color.v) - 7 + 'px',
+	        backgroundColor: this.__temp.toHexString(),
+	        border: this.__field_knob_border + 'rgb(' + flip + ',' + flip + ',' + flip + ')'
+	      });
+	      this.__hue_knob.style.marginTop = (1 - this.__color.h / 360) * 100 + 'px';
+	      this.__temp.s = 1;
+	      this.__temp.v = 1;
+	      linearGradient(this.__saturation_field, 'left', '#fff', this.__temp.toHexString());
+	      this.__input.value = this.__color.toString();
+	      Common.extend(this.__input.style, {
+	        backgroundColor: this.__color.toHexString(),
+	        color: 'rgb(' + flip + ',' + flip + ',' + flip + ')',
+	        textShadow: this.__input_textShadow + 'rgba(' + _flip + ',' + _flip + ',' + _flip + ',.7)'
+	      });
+	    }
+	  }]);
+	  return ColorController;
+	}(Controller);
+	var vendors = ['-moz-', '-o-', '-webkit-', '-ms-', ''];
+	function linearGradient(elem, x, a, b) {
+	  elem.style.background = '';
+	  Common.each(vendors, function (vendor) {
+	    elem.style.cssText += 'background: ' + vendor + 'linear-gradient(' + x + ', ' + a + ' 0%, ' + b + ' 100%); ';
+	  });
+	}
+	function hueGradient(elem) {
+	  elem.style.background = '';
+	  elem.style.cssText += 'background: -moz-linear-gradient(top,  #ff0000 0%, #ff00ff 17%, #0000ff 34%, #00ffff 50%, #00ff00 67%, #ffff00 84%, #ff0000 100%);';
+	  elem.style.cssText += 'background: -webkit-linear-gradient(top,  #ff0000 0%,#ff00ff 17%,#0000ff 34%,#00ffff 50%,#00ff00 67%,#ffff00 84%,#ff0000 100%);';
+	  elem.style.cssText += 'background: -o-linear-gradient(top,  #ff0000 0%,#ff00ff 17%,#0000ff 34%,#00ffff 50%,#00ff00 67%,#ffff00 84%,#ff0000 100%);';
+	  elem.style.cssText += 'background: -ms-linear-gradient(top,  #ff0000 0%,#ff00ff 17%,#0000ff 34%,#00ffff 50%,#00ff00 67%,#ffff00 84%,#ff0000 100%);';
+	  elem.style.cssText += 'background: linear-gradient(top,  #ff0000 0%,#ff00ff 17%,#0000ff 34%,#00ffff 50%,#00ff00 67%,#ffff00 84%,#ff0000 100%);';
+	}
+	
+	var css = {
+	  load: function load(url, indoc) {
+	    var doc = indoc || document;
+	    var link = doc.createElement('link');
+	    link.type = 'text/css';
+	    link.rel = 'stylesheet';
+	    link.href = url;
+	    doc.getElementsByTagName('head')[0].appendChild(link);
+	  },
+	  inject: function inject(cssContent, indoc) {
+	    var doc = indoc || document;
+	    var injected = document.createElement('style');
+	    injected.type = 'text/css';
+	    injected.innerHTML = cssContent;
+	    var head = doc.getElementsByTagName('head')[0];
+	    try {
+	      head.appendChild(injected);
+	    } catch (e) {
+	    }
+	  }
+	};
+	
+	var saveDialogContents = "<div id=\"dg-save\" class=\"dg dialogue\">\n\n  Here's the new load parameter for your <code>GUI</code>'s constructor:\n\n  <textarea id=\"dg-new-constructor\"></textarea>\n\n  <div id=\"dg-save-locally\">\n\n    <input id=\"dg-local-storage\" type=\"checkbox\"/> Automatically save\n    values to <code>localStorage</code> on exit.\n\n    <div id=\"dg-local-explain\">The values saved to <code>localStorage</code> will\n      override those passed to <code>dat.GUI</code>'s constructor. This makes it\n      easier to work incrementally, but <code>localStorage</code> is fragile,\n      and your friends may not see the same values you do.\n\n    </div>\n\n  </div>\n\n</div>";
+	
+	var ControllerFactory = function ControllerFactory(object, property) {
+	  var initialValue = object[property];
+	  if (Common.isArray(arguments[2]) || Common.isObject(arguments[2])) {
+	    return new OptionController(object, property, arguments[2]);
+	  }
+	  if (Common.isNumber(initialValue)) {
+	    if (Common.isNumber(arguments[2]) && Common.isNumber(arguments[3])) {
+	      if (Common.isNumber(arguments[4])) {
+	        return new NumberControllerSlider(object, property, arguments[2], arguments[3], arguments[4]);
+	      }
+	      return new NumberControllerSlider(object, property, arguments[2], arguments[3]);
+	    }
+	    if (Common.isNumber(arguments[4])) {
+	      return new NumberControllerBox(object, property, { min: arguments[2], max: arguments[3], step: arguments[4] });
+	    }
+	    return new NumberControllerBox(object, property, { min: arguments[2], max: arguments[3] });
+	  }
+	  if (Common.isString(initialValue)) {
+	    return new StringController(object, property);
+	  }
+	  if (Common.isFunction(initialValue)) {
+	    return new FunctionController(object, property, '');
+	  }
+	  if (Common.isBoolean(initialValue)) {
+	    return new BooleanController(object, property);
+	  }
+	  return null;
+	};
+	
+	function requestAnimationFrame(callback) {
+	  setTimeout(callback, 1000 / 60);
+	}
+	var requestAnimationFrame$1 = window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame || window.oRequestAnimationFrame || window.msRequestAnimationFrame || requestAnimationFrame;
+	
+	var CenteredDiv = function () {
+	  function CenteredDiv() {
+	    classCallCheck(this, CenteredDiv);
+	    this.backgroundElement = document.createElement('div');
+	    Common.extend(this.backgroundElement.style, {
+	      backgroundColor: 'rgba(0,0,0,0.8)',
+	      top: 0,
+	      left: 0,
+	      display: 'none',
+	      zIndex: '1000',
+	      opacity: 0,
+	      WebkitTransition: 'opacity 0.2s linear',
+	      transition: 'opacity 0.2s linear'
+	    });
+	    dom.makeFullscreen(this.backgroundElement);
+	    this.backgroundElement.style.position = 'fixed';
+	    this.domElement = document.createElement('div');
+	    Common.extend(this.domElement.style, {
+	      position: 'fixed',
+	      display: 'none',
+	      zIndex: '1001',
+	      opacity: 0,
+	      WebkitTransition: '-webkit-transform 0.2s ease-out, opacity 0.2s linear',
+	      transition: 'transform 0.2s ease-out, opacity 0.2s linear'
+	    });
+	    document.body.appendChild(this.backgroundElement);
+	    document.body.appendChild(this.domElement);
+	    var _this = this;
+	    dom.bind(this.backgroundElement, 'click', function () {
+	      _this.hide();
+	    });
+	  }
+	  createClass(CenteredDiv, [{
+	    key: 'show',
+	    value: function show() {
+	      var _this = this;
+	      this.backgroundElement.style.display = 'block';
+	      this.domElement.style.display = 'block';
+	      this.domElement.style.opacity = 0;
+	      this.domElement.style.webkitTransform = 'scale(1.1)';
+	      this.layout();
+	      Common.defer(function () {
+	        _this.backgroundElement.style.opacity = 1;
+	        _this.domElement.style.opacity = 1;
+	        _this.domElement.style.webkitTransform = 'scale(1)';
+	      });
+	    }
+	  }, {
+	    key: 'hide',
+	    value: function hide() {
+	      var _this = this;
+	      var hide = function hide() {
+	        _this.domElement.style.display = 'none';
+	        _this.backgroundElement.style.display = 'none';
+	        dom.unbind(_this.domElement, 'webkitTransitionEnd', hide);
+	        dom.unbind(_this.domElement, 'transitionend', hide);
+	        dom.unbind(_this.domElement, 'oTransitionEnd', hide);
+	      };
+	      dom.bind(this.domElement, 'webkitTransitionEnd', hide);
+	      dom.bind(this.domElement, 'transitionend', hide);
+	      dom.bind(this.domElement, 'oTransitionEnd', hide);
+	      this.backgroundElement.style.opacity = 0;
+	      this.domElement.style.opacity = 0;
+	      this.domElement.style.webkitTransform = 'scale(1.1)';
+	    }
+	  }, {
+	    key: 'layout',
+	    value: function layout() {
+	      this.domElement.style.left = window.innerWidth / 2 - dom.getWidth(this.domElement) / 2 + 'px';
+	      this.domElement.style.top = window.innerHeight / 2 - dom.getHeight(this.domElement) / 2 + 'px';
+	    }
+	  }]);
+	  return CenteredDiv;
+	}();
+	
+	var styleSheet = ___$insertStyle(".dg ul{list-style:none;margin:0;padding:0;width:100%;clear:both}.dg.ac{position:fixed;top:0;left:0;right:0;height:0;z-index:0}.dg:not(.ac) .main{overflow:hidden}.dg.main{-webkit-transition:opacity .1s linear;-o-transition:opacity .1s linear;-moz-transition:opacity .1s linear;transition:opacity .1s linear}.dg.main.taller-than-window{overflow-y:auto}.dg.main.taller-than-window .close-button{opacity:1;margin-top:-1px;border-top:1px solid #2c2c2c}.dg.main ul.closed .close-button{opacity:1 !important}.dg.main:hover .close-button,.dg.main .close-button.drag{opacity:1}.dg.main .close-button{-webkit-transition:opacity .1s linear;-o-transition:opacity .1s linear;-moz-transition:opacity .1s linear;transition:opacity .1s linear;border:0;line-height:19px;height:20px;cursor:pointer;text-align:center;background-color:#000}.dg.main .close-button.close-top{position:relative}.dg.main .close-button.close-bottom{position:absolute}.dg.main .close-button:hover{background-color:#111}.dg.a{float:right;margin-right:15px;overflow-y:visible}.dg.a.has-save>ul.close-top{margin-top:0}.dg.a.has-save>ul.close-bottom{margin-top:27px}.dg.a.has-save>ul.closed{margin-top:0}.dg.a .save-row{top:0;z-index:1002}.dg.a .save-row.close-top{position:relative}.dg.a .save-row.close-bottom{position:fixed}.dg li{-webkit-transition:height .1s ease-out;-o-transition:height .1s ease-out;-moz-transition:height .1s ease-out;transition:height .1s ease-out;-webkit-transition:overflow .1s linear;-o-transition:overflow .1s linear;-moz-transition:overflow .1s linear;transition:overflow .1s linear}.dg li:not(.folder){cursor:auto;height:27px;line-height:27px;padding:0 4px 0 5px}.dg li.folder{padding:0;border-left:4px solid rgba(0,0,0,0)}.dg li.title{cursor:pointer;margin-left:-4px}.dg .closed li:not(.title),.dg .closed ul li,.dg .closed ul li>*{height:0;overflow:hidden;border:0}.dg .cr{clear:both;padding-left:3px;height:27px;overflow:hidden}.dg .property-name{cursor:default;float:left;clear:left;width:40%;overflow:hidden;text-overflow:ellipsis}.dg .c{float:left;width:60%;position:relative}.dg .c input[type=text]{border:0;margin-top:4px;padding:3px;width:100%;float:right}.dg .has-slider input[type=text]{width:30%;margin-left:0}.dg .slider{float:left;width:66%;margin-left:-5px;margin-right:0;height:19px;margin-top:4px}.dg .slider-fg{height:100%}.dg .c input[type=checkbox]{margin-top:7px}.dg .c select{margin-top:5px}.dg .cr.function,.dg .cr.function .property-name,.dg .cr.function *,.dg .cr.boolean,.dg .cr.boolean *{cursor:pointer}.dg .cr.color{overflow:visible}.dg .selector{display:none;position:absolute;margin-left:-9px;margin-top:23px;z-index:10}.dg .c:hover .selector,.dg .selector.drag{display:block}.dg li.save-row{padding:0}.dg li.save-row .button{display:inline-block;padding:0px 6px}.dg.dialogue{background-color:#222;width:460px;padding:15px;font-size:13px;line-height:15px}#dg-new-constructor{padding:10px;color:#222;font-family:Monaco, monospace;font-size:10px;border:0;resize:none;box-shadow:inset 1px 1px 1px #888;word-wrap:break-word;margin:12px 0;display:block;width:440px;overflow-y:scroll;height:100px;position:relative}#dg-local-explain{display:none;font-size:11px;line-height:17px;border-radius:3px;background-color:#333;padding:8px;margin-top:10px}#dg-local-explain code{font-size:10px}#dat-gui-save-locally{display:none}.dg{color:#eee;font:11px 'Lucida Grande', sans-serif;text-shadow:0 -1px 0 #111}.dg.main::-webkit-scrollbar{width:5px;background:#1a1a1a}.dg.main::-webkit-scrollbar-corner{height:0;display:none}.dg.main::-webkit-scrollbar-thumb{border-radius:5px;background:#676767}.dg li:not(.folder){background:#1a1a1a;border-bottom:1px solid #2c2c2c}.dg li.save-row{line-height:25px;background:#dad5cb;border:0}.dg li.save-row select{margin-left:5px;width:108px}.dg li.save-row .button{margin-left:5px;margin-top:1px;border-radius:2px;font-size:9px;line-height:7px;padding:4px 4px 5px 4px;background:#c5bdad;color:#fff;text-shadow:0 1px 0 #b0a58f;box-shadow:0 -1px 0 #b0a58f;cursor:pointer}.dg li.save-row .button.gears{background:#c5bdad url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAsAAAANCAYAAAB/9ZQ7AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAQJJREFUeNpiYKAU/P//PwGIC/ApCABiBSAW+I8AClAcgKxQ4T9hoMAEUrxx2QSGN6+egDX+/vWT4e7N82AMYoPAx/evwWoYoSYbACX2s7KxCxzcsezDh3evFoDEBYTEEqycggWAzA9AuUSQQgeYPa9fPv6/YWm/Acx5IPb7ty/fw+QZblw67vDs8R0YHyQhgObx+yAJkBqmG5dPPDh1aPOGR/eugW0G4vlIoTIfyFcA+QekhhHJhPdQxbiAIguMBTQZrPD7108M6roWYDFQiIAAv6Aow/1bFwXgis+f2LUAynwoIaNcz8XNx3Dl7MEJUDGQpx9gtQ8YCueB+D26OECAAQDadt7e46D42QAAAABJRU5ErkJggg==) 2px 1px no-repeat;height:7px;width:8px}.dg li.save-row .button:hover{background-color:#bab19e;box-shadow:0 -1px 0 #b0a58f}.dg li.folder{border-bottom:0}.dg li.title{padding-left:16px;background:#000 url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlI+hKgFxoCgAOw==) 6px 10px no-repeat;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.2)}.dg .closed li.title{background-image:url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlGIWqMCbWAEAOw==)}.dg .cr.boolean{border-left:3px solid #806787}.dg .cr.color{border-left:3px solid}.dg .cr.function{border-left:3px solid #e61d5f}.dg .cr.number{border-left:3px solid #2FA1D6}.dg .cr.number input[type=text]{color:#2FA1D6}.dg .cr.string{border-left:3px solid #1ed36f}.dg .cr.string input[type=text]{color:#1ed36f}.dg .cr.function:hover,.dg .cr.boolean:hover{background:#111}.dg .c input[type=text]{background:#303030;outline:none}.dg .c input[type=text]:hover{background:#3c3c3c}.dg .c input[type=text]:focus{background:#494949;color:#fff}.dg .c .slider{background:#303030;cursor:ew-resize}.dg .c .slider-fg{background:#2FA1D6;max-width:100%}.dg .c .slider:hover{background:#3c3c3c}.dg .c .slider:hover .slider-fg{background:#44abda}\n");
+	
+	css.inject(styleSheet);
+	var CSS_NAMESPACE = 'dg';
+	var HIDE_KEY_CODE = 72;
+	var CLOSE_BUTTON_HEIGHT = 20;
+	var DEFAULT_DEFAULT_PRESET_NAME = 'Default';
+	var SUPPORTS_LOCAL_STORAGE = function () {
+	  try {
+	    return !!window.localStorage;
+	  } catch (e) {
+	    return false;
+	  }
+	}();
+	var SAVE_DIALOGUE = void 0;
+	var autoPlaceVirgin = true;
+	var autoPlaceContainer = void 0;
+	var hide = false;
+	var hideableGuis = [];
+	var GUI = function GUI(pars) {
+	  var _this = this;
+	  var params = pars || {};
+	  this.domElement = document.createElement('div');
+	  this.__ul = document.createElement('ul');
+	  this.domElement.appendChild(this.__ul);
+	  dom.addClass(this.domElement, CSS_NAMESPACE);
+	  this.__folders = {};
+	  this.__controllers = [];
+	  this.__rememberedObjects = [];
+	  this.__rememberedObjectIndecesToControllers = [];
+	  this.__listening = [];
+	  params = Common.defaults(params, {
+	    closeOnTop: false,
+	    autoPlace: true,
+	    width: GUI.DEFAULT_WIDTH
+	  });
+	  params = Common.defaults(params, {
+	    resizable: params.autoPlace,
+	    hideable: params.autoPlace
+	  });
+	  if (!Common.isUndefined(params.load)) {
+	    if (params.preset) {
+	      params.load.preset = params.preset;
+	    }
+	  } else {
+	    params.load = { preset: DEFAULT_DEFAULT_PRESET_NAME };
+	  }
+	  if (Common.isUndefined(params.parent) && params.hideable) {
+	    hideableGuis.push(this);
+	  }
+	  params.resizable = Common.isUndefined(params.parent) && params.resizable;
+	  if (params.autoPlace && Common.isUndefined(params.scrollable)) {
+	    params.scrollable = true;
+	  }
+	  var useLocalStorage = SUPPORTS_LOCAL_STORAGE && localStorage.getItem(getLocalStorageHash(this, 'isLocal')) === 'true';
+	  var saveToLocalStorage = void 0;
+	  var titleRow = void 0;
+	  Object.defineProperties(this,
+	  {
+	    parent: {
+	      get: function get$$1() {
+	        return params.parent;
+	      }
+	    },
+	    scrollable: {
+	      get: function get$$1() {
+	        return params.scrollable;
+	      }
+	    },
+	    autoPlace: {
+	      get: function get$$1() {
+	        return params.autoPlace;
+	      }
+	    },
+	    closeOnTop: {
+	      get: function get$$1() {
+	        return params.closeOnTop;
+	      }
+	    },
+	    preset: {
+	      get: function get$$1() {
+	        if (_this.parent) {
+	          return _this.getRoot().preset;
+	        }
+	        return params.load.preset;
+	      },
+	      set: function set$$1(v) {
+	        if (_this.parent) {
+	          _this.getRoot().preset = v;
+	        } else {
+	          params.load.preset = v;
+	        }
+	        setPresetSelectIndex(this);
+	        _this.revert();
+	      }
+	    },
+	    width: {
+	      get: function get$$1() {
+	        return params.width;
+	      },
+	      set: function set$$1(v) {
+	        params.width = v;
+	        setWidth(_this, v);
+	      }
+	    },
+	    name: {
+	      get: function get$$1() {
+	        return params.name;
+	      },
+	      set: function set$$1(v) {
+	        params.name = v;
+	        if (titleRow) {
+	          titleRow.innerHTML = params.name;
+	        }
+	      }
+	    },
+	    closed: {
+	      get: function get$$1() {
+	        return params.closed;
+	      },
+	      set: function set$$1(v) {
+	        params.closed = v;
+	        if (params.closed) {
+	          dom.addClass(_this.__ul, GUI.CLASS_CLOSED);
+	        } else {
+	          dom.removeClass(_this.__ul, GUI.CLASS_CLOSED);
+	        }
+	        this.onResize();
+	        if (_this.__closeButton) {
+	          _this.__closeButton.innerHTML = v ? GUI.TEXT_OPEN : GUI.TEXT_CLOSED;
+	        }
+	      }
+	    },
+	    load: {
+	      get: function get$$1() {
+	        return params.load;
+	      }
+	    },
+	    useLocalStorage: {
+	      get: function get$$1() {
+	        return useLocalStorage;
+	      },
+	      set: function set$$1(bool) {
+	        if (SUPPORTS_LOCAL_STORAGE) {
+	          useLocalStorage = bool;
+	          if (bool) {
+	            dom.bind(window, 'unload', saveToLocalStorage);
+	          } else {
+	            dom.unbind(window, 'unload', saveToLocalStorage);
+	          }
+	          localStorage.setItem(getLocalStorageHash(_this, 'isLocal'), bool);
+	        }
+	      }
+	    }
+	  });
+	  if (Common.isUndefined(params.parent)) {
+	    this.closed = params.closed || false;
+	    dom.addClass(this.domElement, GUI.CLASS_MAIN);
+	    dom.makeSelectable(this.domElement, false);
+	    if (SUPPORTS_LOCAL_STORAGE) {
+	      if (useLocalStorage) {
+	        _this.useLocalStorage = true;
+	        var savedGui = localStorage.getItem(getLocalStorageHash(this, 'gui'));
+	        if (savedGui) {
+	          params.load = JSON.parse(savedGui);
+	        }
+	      }
+	    }
+	    this.__closeButton = document.createElement('div');
+	    this.__closeButton.innerHTML = GUI.TEXT_CLOSED;
+	    dom.addClass(this.__closeButton, GUI.CLASS_CLOSE_BUTTON);
+	    if (params.closeOnTop) {
+	      dom.addClass(this.__closeButton, GUI.CLASS_CLOSE_TOP);
+	      this.domElement.insertBefore(this.__closeButton, this.domElement.childNodes[0]);
+	    } else {
+	      dom.addClass(this.__closeButton, GUI.CLASS_CLOSE_BOTTOM);
+	      this.domElement.appendChild(this.__closeButton);
+	    }
+	    dom.bind(this.__closeButton, 'click', function () {
+	      _this.closed = !_this.closed;
+	    });
+	  } else {
+	    if (params.closed === undefined) {
+	      params.closed = true;
+	    }
+	    var titleRowName = document.createTextNode(params.name);
+	    dom.addClass(titleRowName, 'controller-name');
+	    titleRow = addRow(_this, titleRowName);
+	    var onClickTitle = function onClickTitle(e) {
+	      e.preventDefault();
+	      _this.closed = !_this.closed;
+	      return false;
+	    };
+	    dom.addClass(this.__ul, GUI.CLASS_CLOSED);
+	    dom.addClass(titleRow, 'title');
+	    dom.bind(titleRow, 'click', onClickTitle);
+	    if (!params.closed) {
+	      this.closed = false;
+	    }
+	  }
+	  if (params.autoPlace) {
+	    if (Common.isUndefined(params.parent)) {
+	      if (autoPlaceVirgin) {
+	        autoPlaceContainer = document.createElement('div');
+	        dom.addClass(autoPlaceContainer, CSS_NAMESPACE);
+	        dom.addClass(autoPlaceContainer, GUI.CLASS_AUTO_PLACE_CONTAINER);
+	        document.body.appendChild(autoPlaceContainer);
+	        autoPlaceVirgin = false;
+	      }
+	      autoPlaceContainer.appendChild(this.domElement);
+	      dom.addClass(this.domElement, GUI.CLASS_AUTO_PLACE);
+	    }
+	    if (!this.parent) {
+	      setWidth(_this, params.width);
+	    }
+	  }
+	  this.__resizeHandler = function () {
+	    _this.onResizeDebounced();
+	  };
+	  dom.bind(window, 'resize', this.__resizeHandler);
+	  dom.bind(this.__ul, 'webkitTransitionEnd', this.__resizeHandler);
+	  dom.bind(this.__ul, 'transitionend', this.__resizeHandler);
+	  dom.bind(this.__ul, 'oTransitionEnd', this.__resizeHandler);
+	  this.onResize();
+	  if (params.resizable) {
+	    addResizeHandle(this);
+	  }
+	  saveToLocalStorage = function saveToLocalStorage() {
+	    if (SUPPORTS_LOCAL_STORAGE && localStorage.getItem(getLocalStorageHash(_this, 'isLocal')) === 'true') {
+	      localStorage.setItem(getLocalStorageHash(_this, 'gui'), JSON.stringify(_this.getSaveObject()));
+	    }
+	  };
+	  this.saveToLocalStorageIfPossible = saveToLocalStorage;
+	  function resetWidth() {
+	    var root = _this.getRoot();
+	    root.width += 1;
+	    Common.defer(function () {
+	      root.width -= 1;
+	    });
+	  }
+	  if (!params.parent) {
+	    resetWidth();
+	  }
+	};
+	GUI.toggleHide = function () {
+	  hide = !hide;
+	  Common.each(hideableGuis, function (gui) {
+	    gui.domElement.style.display = hide ? 'none' : '';
+	  });
+	};
+	GUI.CLASS_AUTO_PLACE = 'a';
+	GUI.CLASS_AUTO_PLACE_CONTAINER = 'ac';
+	GUI.CLASS_MAIN = 'main';
+	GUI.CLASS_CONTROLLER_ROW = 'cr';
+	GUI.CLASS_TOO_TALL = 'taller-than-window';
+	GUI.CLASS_CLOSED = 'closed';
+	GUI.CLASS_CLOSE_BUTTON = 'close-button';
+	GUI.CLASS_CLOSE_TOP = 'close-top';
+	GUI.CLASS_CLOSE_BOTTOM = 'close-bottom';
+	GUI.CLASS_DRAG = 'drag';
+	GUI.DEFAULT_WIDTH = 245;
+	GUI.TEXT_CLOSED = 'Close Controls';
+	GUI.TEXT_OPEN = 'Open Controls';
+	GUI._keydownHandler = function (e) {
+	  if (document.activeElement.type !== 'text' && (e.which === HIDE_KEY_CODE || e.keyCode === HIDE_KEY_CODE)) {
+	    GUI.toggleHide();
+	  }
+	};
+	dom.bind(window, 'keydown', GUI._keydownHandler, false);
+	Common.extend(GUI.prototype,
+	{
+	  add: function add(object, property) {
+	    return _add(this, object, property, {
+	      factoryArgs: Array.prototype.slice.call(arguments, 2)
+	    });
+	  },
+	  addColor: function addColor(object, property) {
+	    return _add(this, object, property, {
+	      color: true
+	    });
+	  },
+	  remove: function remove(controller) {
+	    this.__ul.removeChild(controller.__li);
+	    this.__controllers.splice(this.__controllers.indexOf(controller), 1);
+	    var _this = this;
+	    Common.defer(function () {
+	      _this.onResize();
+	    });
+	  },
+	  destroy: function destroy() {
+	    if (this.parent) {
+	      throw new Error('Only the root GUI should be removed with .destroy(). ' + 'For subfolders, use gui.removeFolder(folder) instead.');
+	    }
+	    if (this.autoPlace) {
+	      autoPlaceContainer.removeChild(this.domElement);
+	    }
+	    var _this = this;
+	    Common.each(this.__folders, function (subfolder) {
+	      _this.removeFolder(subfolder);
+	    });
+	    dom.unbind(window, 'keydown', GUI._keydownHandler, false);
+	    removeListeners(this);
+	  },
+	  addFolder: function addFolder(name) {
+	    if (this.__folders[name] !== undefined) {
+	      throw new Error('You already have a folder in this GUI by the' + ' name "' + name + '"');
+	    }
+	    var newGuiParams = { name: name, parent: this };
+	    newGuiParams.autoPlace = this.autoPlace;
+	    if (this.load &&
+	    this.load.folders &&
+	    this.load.folders[name]) {
+	      newGuiParams.closed = this.load.folders[name].closed;
+	      newGuiParams.load = this.load.folders[name];
+	    }
+	    var gui = new GUI(newGuiParams);
+	    this.__folders[name] = gui;
+	    var li = addRow(this, gui.domElement);
+	    dom.addClass(li, 'folder');
+	    return gui;
+	  },
+	  removeFolder: function removeFolder(folder) {
+	    this.__ul.removeChild(folder.domElement.parentElement);
+	    delete this.__folders[folder.name];
+	    if (this.load &&
+	    this.load.folders &&
+	    this.load.folders[folder.name]) {
+	      delete this.load.folders[folder.name];
+	    }
+	    removeListeners(folder);
+	    var _this = this;
+	    Common.each(folder.__folders, function (subfolder) {
+	      folder.removeFolder(subfolder);
+	    });
+	    Common.defer(function () {
+	      _this.onResize();
+	    });
+	  },
+	  open: function open() {
+	    this.closed = false;
+	  },
+	  close: function close() {
+	    this.closed = true;
+	  },
+	  hide: function hide() {
+	    this.domElement.style.display = 'none';
+	  },
+	  show: function show() {
+	    this.domElement.style.display = '';
+	  },
+	  onResize: function onResize() {
+	    var root = this.getRoot();
+	    if (root.scrollable) {
+	      var top = dom.getOffset(root.__ul).top;
+	      var h = 0;
+	      Common.each(root.__ul.childNodes, function (node) {
+	        if (!(root.autoPlace && node === root.__save_row)) {
+	          h += dom.getHeight(node);
+	        }
+	      });
+	      if (window.innerHeight - top - CLOSE_BUTTON_HEIGHT < h) {
+	        dom.addClass(root.domElement, GUI.CLASS_TOO_TALL);
+	        root.__ul.style.height = window.innerHeight - top - CLOSE_BUTTON_HEIGHT + 'px';
+	      } else {
+	        dom.removeClass(root.domElement, GUI.CLASS_TOO_TALL);
+	        root.__ul.style.height = 'auto';
+	      }
+	    }
+	    if (root.__resize_handle) {
+	      Common.defer(function () {
+	        root.__resize_handle.style.height = root.__ul.offsetHeight + 'px';
+	      });
+	    }
+	    if (root.__closeButton) {
+	      root.__closeButton.style.width = root.width + 'px';
+	    }
+	  },
+	  onResizeDebounced: Common.debounce(function () {
+	    this.onResize();
+	  }, 50),
+	  remember: function remember() {
+	    if (Common.isUndefined(SAVE_DIALOGUE)) {
+	      SAVE_DIALOGUE = new CenteredDiv();
+	      SAVE_DIALOGUE.domElement.innerHTML = saveDialogContents;
+	    }
+	    if (this.parent) {
+	      throw new Error('You can only call remember on a top level GUI.');
+	    }
+	    var _this = this;
+	    Common.each(Array.prototype.slice.call(arguments), function (object) {
+	      if (_this.__rememberedObjects.length === 0) {
+	        addSaveMenu(_this);
+	      }
+	      if (_this.__rememberedObjects.indexOf(object) === -1) {
+	        _this.__rememberedObjects.push(object);
+	      }
+	    });
+	    if (this.autoPlace) {
+	      setWidth(this, this.width);
+	    }
+	  },
+	  getRoot: function getRoot() {
+	    var gui = this;
+	    while (gui.parent) {
+	      gui = gui.parent;
+	    }
+	    return gui;
+	  },
+	  getSaveObject: function getSaveObject() {
+	    var toReturn = this.load;
+	    toReturn.closed = this.closed;
+	    if (this.__rememberedObjects.length > 0) {
+	      toReturn.preset = this.preset;
+	      if (!toReturn.remembered) {
+	        toReturn.remembered = {};
+	      }
+	      toReturn.remembered[this.preset] = getCurrentPreset(this);
+	    }
+	    toReturn.folders = {};
+	    Common.each(this.__folders, function (element, key) {
+	      toReturn.folders[key] = element.getSaveObject();
+	    });
+	    return toReturn;
+	  },
+	  save: function save() {
+	    if (!this.load.remembered) {
+	      this.load.remembered = {};
+	    }
+	    this.load.remembered[this.preset] = getCurrentPreset(this);
+	    markPresetModified(this, false);
+	    this.saveToLocalStorageIfPossible();
+	  },
+	  saveAs: function saveAs(presetName) {
+	    if (!this.load.remembered) {
+	      this.load.remembered = {};
+	      this.load.remembered[DEFAULT_DEFAULT_PRESET_NAME] = getCurrentPreset(this, true);
+	    }
+	    this.load.remembered[presetName] = getCurrentPreset(this);
+	    this.preset = presetName;
+	    addPresetOption(this, presetName, true);
+	    this.saveToLocalStorageIfPossible();
+	  },
+	  revert: function revert(gui) {
+	    Common.each(this.__controllers, function (controller) {
+	      if (!this.getRoot().load.remembered) {
+	        controller.setValue(controller.initialValue);
+	      } else {
+	        recallSavedValue(gui || this.getRoot(), controller);
+	      }
+	      if (controller.__onFinishChange) {
+	        controller.__onFinishChange.call(controller, controller.getValue());
+	      }
+	    }, this);
+	    Common.each(this.__folders, function (folder) {
+	      folder.revert(folder);
+	    });
+	    if (!gui) {
+	      markPresetModified(this.getRoot(), false);
+	    }
+	  },
+	  listen: function listen(controller) {
+	    var init = this.__listening.length === 0;
+	    this.__listening.push(controller);
+	    if (init) {
+	      updateDisplays(this.__listening);
+	    }
+	  },
+	  updateDisplay: function updateDisplay() {
+	    Common.each(this.__controllers, function (controller) {
+	      controller.updateDisplay();
+	    });
+	    Common.each(this.__folders, function (folder) {
+	      folder.updateDisplay();
+	    });
+	  }
+	});
+	function addRow(gui, newDom, liBefore) {
+	  var li = document.createElement('li');
+	  if (newDom) {
+	    li.appendChild(newDom);
+	  }
+	  if (liBefore) {
+	    gui.__ul.insertBefore(li, liBefore);
+	  } else {
+	    gui.__ul.appendChild(li);
+	  }
+	  gui.onResize();
+	  return li;
+	}
+	function removeListeners(gui) {
+	  dom.unbind(window, 'resize', gui.__resizeHandler);
+	  if (gui.saveToLocalStorageIfPossible) {
+	    dom.unbind(window, 'unload', gui.saveToLocalStorageIfPossible);
+	  }
+	}
+	function markPresetModified(gui, modified) {
+	  var opt = gui.__preset_select[gui.__preset_select.selectedIndex];
+	  if (modified) {
+	    opt.innerHTML = opt.value + '*';
+	  } else {
+	    opt.innerHTML = opt.value;
+	  }
+	}
+	function augmentController(gui, li, controller) {
+	  controller.__li = li;
+	  controller.__gui = gui;
+	  Common.extend(controller,                                   {
+	    options: function options(_options) {
+	      if (arguments.length > 1) {
+	        var nextSibling = controller.__li.nextElementSibling;
+	        controller.remove();
+	        return _add(gui, controller.object, controller.property, {
+	          before: nextSibling,
+	          factoryArgs: [Common.toArray(arguments)]
+	        });
+	      }
+	      if (Common.isArray(_options) || Common.isObject(_options)) {
+	        var _nextSibling = controller.__li.nextElementSibling;
+	        controller.remove();
+	        return _add(gui, controller.object, controller.property, {
+	          before: _nextSibling,
+	          factoryArgs: [_options]
+	        });
+	      }
+	    },
+	    name: function name(_name) {
+	      controller.__li.firstElementChild.firstElementChild.innerHTML = _name;
+	      return controller;
+	    },
+	    listen: function listen() {
+	      controller.__gui.listen(controller);
+	      return controller;
+	    },
+	    remove: function remove() {
+	      controller.__gui.remove(controller);
+	      return controller;
+	    }
+	  });
+	  if (controller instanceof NumberControllerSlider) {
+	    var box = new NumberControllerBox(controller.object, controller.property, { min: controller.__min, max: controller.__max, step: controller.__step });
+	    Common.each(['updateDisplay', 'onChange', 'onFinishChange', 'step', 'min', 'max'], function (method) {
+	      var pc = controller[method];
+	      var pb = box[method];
+	      controller[method] = box[method] = function () {
+	        var args = Array.prototype.slice.call(arguments);
+	        pb.apply(box, args);
+	        return pc.apply(controller, args);
+	      };
+	    });
+	    dom.addClass(li, 'has-slider');
+	    controller.domElement.insertBefore(box.domElement, controller.domElement.firstElementChild);
+	  } else if (controller instanceof NumberControllerBox) {
+	    var r = function r(returned) {
+	      if (Common.isNumber(controller.__min) && Common.isNumber(controller.__max)) {
+	        var oldName = controller.__li.firstElementChild.firstElementChild.innerHTML;
+	        var wasListening = controller.__gui.__listening.indexOf(controller) > -1;
+	        controller.remove();
+	        var newController = _add(gui, controller.object, controller.property, {
+	          before: controller.__li.nextElementSibling,
+	          factoryArgs: [controller.__min, controller.__max, controller.__step]
+	        });
+	        newController.name(oldName);
+	        if (wasListening) newController.listen();
+	        return newController;
+	      }
+	      return returned;
+	    };
+	    controller.min = Common.compose(r, controller.min);
+	    controller.max = Common.compose(r, controller.max);
+	  } else if (controller instanceof BooleanController) {
+	    dom.bind(li, 'click', function () {
+	      dom.fakeEvent(controller.__checkbox, 'click');
+	    });
+	    dom.bind(controller.__checkbox, 'click', function (e) {
+	      e.stopPropagation();
+	    });
+	  } else if (controller instanceof FunctionController) {
+	    dom.bind(li, 'click', function () {
+	      dom.fakeEvent(controller.__button, 'click');
+	    });
+	    dom.bind(li, 'mouseover', function () {
+	      dom.addClass(controller.__button, 'hover');
+	    });
+	    dom.bind(li, 'mouseout', function () {
+	      dom.removeClass(controller.__button, 'hover');
+	    });
+	  } else if (controller instanceof ColorController) {
+	    dom.addClass(li, 'color');
+	    controller.updateDisplay = Common.compose(function (val) {
+	      li.style.borderLeftColor = controller.__color.toString();
+	      return val;
+	    }, controller.updateDisplay);
+	    controller.updateDisplay();
+	  }
+	  controller.setValue = Common.compose(function (val) {
+	    if (gui.getRoot().__preset_select && controller.isModified()) {
+	      markPresetModified(gui.getRoot(), true);
+	    }
+	    return val;
+	  }, controller.setValue);
+	}
+	function recallSavedValue(gui, controller) {
+	  var root = gui.getRoot();
+	  var matchedIndex = root.__rememberedObjects.indexOf(controller.object);
+	  if (matchedIndex !== -1) {
+	    var controllerMap = root.__rememberedObjectIndecesToControllers[matchedIndex];
+	    if (controllerMap === undefined) {
+	      controllerMap = {};
+	      root.__rememberedObjectIndecesToControllers[matchedIndex] = controllerMap;
+	    }
+	    controllerMap[controller.property] = controller;
+	    if (root.load && root.load.remembered) {
+	      var presetMap = root.load.remembered;
+	      var preset = void 0;
+	      if (presetMap[gui.preset]) {
+	        preset = presetMap[gui.preset];
+	      } else if (presetMap[DEFAULT_DEFAULT_PRESET_NAME]) {
+	        preset = presetMap[DEFAULT_DEFAULT_PRESET_NAME];
+	      } else {
+	        return;
+	      }
+	      if (preset[matchedIndex] && preset[matchedIndex][controller.property] !== undefined) {
+	        var value = preset[matchedIndex][controller.property];
+	        controller.initialValue = value;
+	        controller.setValue(value);
+	      }
+	    }
+	  }
+	}
+	function _add(gui, object, property, params) {
+	  if (object[property] === undefined) {
+	    throw new Error('Object "' + object + '" has no property "' + property + '"');
+	  }
+	  var controller = void 0;
+	  if (params.color) {
+	    controller = new ColorController(object, property);
+	  } else {
+	    var factoryArgs = [object, property].concat(params.factoryArgs);
+	    controller = ControllerFactory.apply(gui, factoryArgs);
+	  }
+	  if (params.before instanceof Controller) {
+	    params.before = params.before.__li;
+	  }
+	  recallSavedValue(gui, controller);
+	  dom.addClass(controller.domElement, 'c');
+	  var name = document.createElement('span');
+	  dom.addClass(name, 'property-name');
+	  name.innerHTML = controller.property;
+	  var container = document.createElement('div');
+	  container.appendChild(name);
+	  container.appendChild(controller.domElement);
+	  var li = addRow(gui, container, params.before);
+	  dom.addClass(li, GUI.CLASS_CONTROLLER_ROW);
+	  if (controller instanceof ColorController) {
+	    dom.addClass(li, 'color');
+	  } else {
+	    dom.addClass(li, _typeof(controller.getValue()));
+	  }
+	  augmentController(gui, li, controller);
+	  gui.__controllers.push(controller);
+	  return controller;
+	}
+	function getLocalStorageHash(gui, key) {
+	  return document.location.href + '.' + key;
+	}
+	function addPresetOption(gui, name, setSelected) {
+	  var opt = document.createElement('option');
+	  opt.innerHTML = name;
+	  opt.value = name;
+	  gui.__preset_select.appendChild(opt);
+	  if (setSelected) {
+	    gui.__preset_select.selectedIndex = gui.__preset_select.length - 1;
+	  }
+	}
+	function showHideExplain(gui, explain) {
+	  explain.style.display = gui.useLocalStorage ? 'block' : 'none';
+	}
+	function addSaveMenu(gui) {
+	  var div = gui.__save_row = document.createElement('li');
+	  dom.addClass(gui.domElement, 'has-save');
+	  gui.__ul.insertBefore(div, gui.__ul.firstChild);
+	  dom.addClass(div, 'save-row');
+	  var gears = document.createElement('span');
+	  gears.innerHTML = '&nbsp;';
+	  dom.addClass(gears, 'button gears');
+	  var button = document.createElement('span');
+	  button.innerHTML = 'Save';
+	  dom.addClass(button, 'button');
+	  dom.addClass(button, 'save');
+	  var button2 = document.createElement('span');
+	  button2.innerHTML = 'New';
+	  dom.addClass(button2, 'button');
+	  dom.addClass(button2, 'save-as');
+	  var button3 = document.createElement('span');
+	  button3.innerHTML = 'Revert';
+	  dom.addClass(button3, 'button');
+	  dom.addClass(button3, 'revert');
+	  var select = gui.__preset_select = document.createElement('select');
+	  if (gui.load && gui.load.remembered) {
+	    Common.each(gui.load.remembered, function (value, key) {
+	      addPresetOption(gui, key, key === gui.preset);
+	    });
+	  } else {
+	    addPresetOption(gui, DEFAULT_DEFAULT_PRESET_NAME, false);
+	  }
+	  dom.bind(select, 'change', function () {
+	    for (var index = 0; index < gui.__preset_select.length; index++) {
+	      gui.__preset_select[index].innerHTML = gui.__preset_select[index].value;
+	    }
+	    gui.preset = this.value;
+	  });
+	  div.appendChild(select);
+	  div.appendChild(gears);
+	  div.appendChild(button);
+	  div.appendChild(button2);
+	  div.appendChild(button3);
+	  if (SUPPORTS_LOCAL_STORAGE) {
+	    var explain = document.getElementById('dg-local-explain');
+	    var localStorageCheckBox = document.getElementById('dg-local-storage');
+	    var saveLocally = document.getElementById('dg-save-locally');
+	    saveLocally.style.display = 'block';
+	    if (localStorage.getItem(getLocalStorageHash(gui, 'isLocal')) === 'true') {
+	      localStorageCheckBox.setAttribute('checked', 'checked');
+	    }
+	    showHideExplain(gui, explain);
+	    dom.bind(localStorageCheckBox, 'change', function () {
+	      gui.useLocalStorage = !gui.useLocalStorage;
+	      showHideExplain(gui, explain);
+	    });
+	  }
+	  var newConstructorTextArea = document.getElementById('dg-new-constructor');
+	  dom.bind(newConstructorTextArea, 'keydown', function (e) {
+	    if (e.metaKey && (e.which === 67 || e.keyCode === 67)) {
+	      SAVE_DIALOGUE.hide();
+	    }
+	  });
+	  dom.bind(gears, 'click', function () {
+	    newConstructorTextArea.innerHTML = JSON.stringify(gui.getSaveObject(), undefined, 2);
+	    SAVE_DIALOGUE.show();
+	    newConstructorTextArea.focus();
+	    newConstructorTextArea.select();
+	  });
+	  dom.bind(button, 'click', function () {
+	    gui.save();
+	  });
+	  dom.bind(button2, 'click', function () {
+	    var presetName = prompt('Enter a new preset name.');
+	    if (presetName) {
+	      gui.saveAs(presetName);
+	    }
+	  });
+	  dom.bind(button3, 'click', function () {
+	    gui.revert();
+	  });
+	}
+	function addResizeHandle(gui) {
+	  var pmouseX = void 0;
+	  gui.__resize_handle = document.createElement('div');
+	  Common.extend(gui.__resize_handle.style, {
+	    width: '6px',
+	    marginLeft: '-3px',
+	    height: '200px',
+	    cursor: 'ew-resize',
+	    position: 'absolute'
+	  });
+	  function drag(e) {
+	    e.preventDefault();
+	    gui.width += pmouseX - e.clientX;
+	    gui.onResize();
+	    pmouseX = e.clientX;
+	    return false;
+	  }
+	  function dragStop() {
+	    dom.removeClass(gui.__closeButton, GUI.CLASS_DRAG);
+	    dom.unbind(window, 'mousemove', drag);
+	    dom.unbind(window, 'mouseup', dragStop);
+	  }
+	  function dragStart(e) {
+	    e.preventDefault();
+	    pmouseX = e.clientX;
+	    dom.addClass(gui.__closeButton, GUI.CLASS_DRAG);
+	    dom.bind(window, 'mousemove', drag);
+	    dom.bind(window, 'mouseup', dragStop);
+	    return false;
+	  }
+	  dom.bind(gui.__resize_handle, 'mousedown', dragStart);
+	  dom.bind(gui.__closeButton, 'mousedown', dragStart);
+	  gui.domElement.insertBefore(gui.__resize_handle, gui.domElement.firstElementChild);
+	}
+	function setWidth(gui, w) {
+	  gui.domElement.style.width = w + 'px';
+	  if (gui.__save_row && gui.autoPlace) {
+	    gui.__save_row.style.width = w + 'px';
+	  }
+	  if (gui.__closeButton) {
+	    gui.__closeButton.style.width = w + 'px';
+	  }
+	}
+	function getCurrentPreset(gui, useInitialValues) {
+	  var toReturn = {};
+	  Common.each(gui.__rememberedObjects, function (val, index) {
+	    var savedValues = {};
+	    var controllerMap = gui.__rememberedObjectIndecesToControllers[index];
+	    Common.each(controllerMap, function (controller, property) {
+	      savedValues[property] = useInitialValues ? controller.initialValue : controller.getValue();
+	    });
+	    toReturn[index] = savedValues;
+	  });
+	  return toReturn;
+	}
+	function setPresetSelectIndex(gui) {
+	  for (var index = 0; index < gui.__preset_select.length; index++) {
+	    if (gui.__preset_select[index].value === gui.preset) {
+	      gui.__preset_select.selectedIndex = index;
+	    }
+	  }
+	}
+	function updateDisplays(controllerArray) {
+	  if (controllerArray.length !== 0) {
+	    requestAnimationFrame$1.call(window, function () {
+	      updateDisplays(controllerArray);
+	    });
+	  }
+	  Common.each(controllerArray, function (c) {
+	    c.updateDisplay();
+	  });
+	}
+	
+	var color = {
+	  Color: Color,
+	  math: ColorMath,
+	  interpret: interpret
+	};
+	var controllers = {
+	  Controller: Controller,
+	  BooleanController: BooleanController,
+	  OptionController: OptionController,
+	  StringController: StringController,
+	  NumberController: NumberController,
+	  NumberControllerBox: NumberControllerBox,
+	  NumberControllerSlider: NumberControllerSlider,
+	  FunctionController: FunctionController,
+	  ColorController: ColorController
+	};
+	var dom$1 = { dom: dom };
+	var gui = { GUI: GUI };
+	var GUI$1 = GUI;
+	var index = {
+	  color: color,
+	  controllers: controllers,
+	  dom: dom$1,
+	  gui: gui,
+	  GUI: GUI$1
+	};
+	
+	exports.color = color;
+	exports.controllers = controllers;
+	exports.dom = dom$1;
+	exports.gui = gui;
+	exports.GUI = GUI$1;
+	exports['default'] = index;
+	
+	Object.defineProperty(exports, '__esModule', { value: true });
+	
+	})));
+	//# sourceMappingURL=dat.gui.js.map
+
+
+/***/ }),
+/* 2 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -70,12 +2765,24 @@
 	  value: true
 	});
 	exports.default = Render;
-	var THREE = __webpack_require__(2);
-	var OrbitControls = __webpack_require__(3)(THREE);
 	
+	var _glMatrix = __webpack_require__(3);
+	
+	var THREE = __webpack_require__(4);
+	var OrbitControls = __webpack_require__(5)(THREE);
+	function hexToRgbA(hex) {
+	  var c;
+	  if (/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)) {
+	    c = hex.substring(1).split('');
+	    if (c.length == 3) {
+	      c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+	    }
+	    c = '0x' + c.join('');
+	    return [parseFloat(c >> 16 & 255) / 255, parseFloat(c >> 8 & 255) / 255, parseFloat(c & 255) / 255];
+	  }
+	}
 	function Camera(canvas) {
 	  var camera = new THREE.PerspectiveCamera(10, canvas.width / canvas.height, 0.1, 1000);
-	
 	  var controls = new OrbitControls(camera, canvas);
 	  controls.enableDamping = true;
 	  controls.enableZoom = true;
@@ -96,6 +2803,7 @@
 	  var drawables = [];
 	
 	  function setup() {
+	    console.log(canvas);
 	    camera = Camera(canvas);
 	    camera.position.set(3, 1, 12);
 	  }
@@ -108,20 +2816,21 @@
 	    gl.viewport(0, 0, canvas.width, canvas.height);
 	  }
 	  var cameraMat = new THREE.Matrix4();
-	  function draw() {
+	  function draw(obj) {
+	    //отрисовка объектов в буфере
 	    camera.controls.update();
 	
 	    camera.updateMatrixWorld();
 	    camera.matrixWorldInverse.getInverse(camera.matrixWorld);
 	
 	    cameraMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-	
 	    for (var i = 0; i < drawables.length; ++i) {
-	      drawables[i].draw({ //отрисовываем объект
+	      drawables[i].draw({ //отрисовываем объекты
 	        camera: camera,
 	        cameraMat: cameraMat,
 	        projMat: camera.projectionMatrix,
-	        viewMat: camera.matrixWorldInverse
+	        viewMat: camera.matrixWorldInverse,
+	        color: obj ? hexToRgbA(obj.color) : [0.0, 0.0, 1]
 	      });
 	    }
 	  }
@@ -134,6 +2843,7 @@
 	    setup();
 	    resize();
 	    renderReady();
+	    draw();
 	  });
 	
 	  window.addEventListener('resize', resize);
@@ -151,7 +2861,40 @@
 	}
 
 /***/ }),
-/* 2 */
+/* 3 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	/*!
+	@fileoverview gl-matrix - High performance matrix and vector operations
+	@author Brandon Jones
+	@author Colin MacKenzie IV
+	@version 2.7.0
+	
+	Copyright (c) 2015-2018, Brandon Jones, Colin MacKenzie IV.
+	
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+	
+	The above copyright notice and this permission notice shall be included in
+	all copies or substantial portions of the Software.
+	
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+	THE SOFTWARE.
+	
+	*/
+	!function(t,n){if(true)module.exports=n();else if("function"==typeof define&&define.amd)define([],n);else{var r=n();for(var a in r)("object"==typeof exports?exports:t)[a]=r[a]}}("undefined"!=typeof self?self:this,function(){return function(t){var n={};function r(a){if(n[a])return n[a].exports;var e=n[a]={i:a,l:!1,exports:{}};return t[a].call(e.exports,e,e.exports,r),e.l=!0,e.exports}return r.m=t,r.c=n,r.d=function(t,n,a){r.o(t,n)||Object.defineProperty(t,n,{enumerable:!0,get:a})},r.r=function(t){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(t,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(t,"__esModule",{value:!0})},r.t=function(t,n){if(1&n&&(t=r(t)),8&n)return t;if(4&n&&"object"==typeof t&&t&&t.__esModule)return t;var a=Object.create(null);if(r.r(a),Object.defineProperty(a,"default",{enumerable:!0,value:t}),2&n&&"string"!=typeof t)for(var e in t)r.d(a,e,function(n){return t[n]}.bind(null,e));return a},r.n=function(t){var n=t&&t.__esModule?function(){return t.default}:function(){return t};return r.d(n,"a",n),n},r.o=function(t,n){return Object.prototype.hasOwnProperty.call(t,n)},r.p="",r(r.s=10)}([function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.setMatrixArrayType=function(t){n.ARRAY_TYPE=t},n.toRadian=function(t){return t*e},n.equals=function(t,n){return Math.abs(t-n)<=a*Math.max(1,Math.abs(t),Math.abs(n))};var a=n.EPSILON=1e-6;n.ARRAY_TYPE="undefined"!=typeof Float32Array?Float32Array:Array,n.RANDOM=Math.random;var e=Math.PI/180},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.forEach=n.sqrLen=n.len=n.sqrDist=n.dist=n.div=n.mul=n.sub=void 0,n.create=e,n.clone=function(t){var n=new a.ARRAY_TYPE(4);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n},n.fromValues=function(t,n,r,e){var u=new a.ARRAY_TYPE(4);return u[0]=t,u[1]=n,u[2]=r,u[3]=e,u},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t},n.set=function(t,n,r,a,e){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t},n.subtract=u,n.multiply=o,n.divide=i,n.ceil=function(t,n){return t[0]=Math.ceil(n[0]),t[1]=Math.ceil(n[1]),t[2]=Math.ceil(n[2]),t[3]=Math.ceil(n[3]),t},n.floor=function(t,n){return t[0]=Math.floor(n[0]),t[1]=Math.floor(n[1]),t[2]=Math.floor(n[2]),t[3]=Math.floor(n[3]),t},n.min=function(t,n,r){return t[0]=Math.min(n[0],r[0]),t[1]=Math.min(n[1],r[1]),t[2]=Math.min(n[2],r[2]),t[3]=Math.min(n[3],r[3]),t},n.max=function(t,n,r){return t[0]=Math.max(n[0],r[0]),t[1]=Math.max(n[1],r[1]),t[2]=Math.max(n[2],r[2]),t[3]=Math.max(n[3],r[3]),t},n.round=function(t,n){return t[0]=Math.round(n[0]),t[1]=Math.round(n[1]),t[2]=Math.round(n[2]),t[3]=Math.round(n[3]),t},n.scale=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t},n.scaleAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t[3]=n[3]+r[3]*a,t},n.distance=s,n.squaredDistance=c,n.length=f,n.squaredLength=M,n.negate=function(t,n){return t[0]=-n[0],t[1]=-n[1],t[2]=-n[2],t[3]=-n[3],t},n.inverse=function(t,n){return t[0]=1/n[0],t[1]=1/n[1],t[2]=1/n[2],t[3]=1/n[3],t},n.normalize=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=r*r+a*a+e*e+u*u;o>0&&(o=1/Math.sqrt(o),t[0]=r*o,t[1]=a*o,t[2]=e*o,t[3]=u*o);return t},n.dot=function(t,n){return t[0]*n[0]+t[1]*n[1]+t[2]*n[2]+t[3]*n[3]},n.lerp=function(t,n,r,a){var e=n[0],u=n[1],o=n[2],i=n[3];return t[0]=e+a*(r[0]-e),t[1]=u+a*(r[1]-u),t[2]=o+a*(r[2]-o),t[3]=i+a*(r[3]-i),t},n.random=function(t,n){var r,e,u,o,i,s;n=n||1;do{r=2*a.RANDOM()-1,e=2*a.RANDOM()-1,i=r*r+e*e}while(i>=1);do{u=2*a.RANDOM()-1,o=2*a.RANDOM()-1,s=u*u+o*o}while(s>=1);var c=Math.sqrt((1-i)/s);return t[0]=n*r,t[1]=n*e,t[2]=n*u*c,t[3]=n*o*c,t},n.transformMat4=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3];return t[0]=r[0]*a+r[4]*e+r[8]*u+r[12]*o,t[1]=r[1]*a+r[5]*e+r[9]*u+r[13]*o,t[2]=r[2]*a+r[6]*e+r[10]*u+r[14]*o,t[3]=r[3]*a+r[7]*e+r[11]*u+r[15]*o,t},n.transformQuat=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=r[0],i=r[1],s=r[2],c=r[3],f=c*a+i*u-s*e,M=c*e+s*a-o*u,h=c*u+o*e-i*a,l=-o*a-i*e-s*u;return t[0]=f*c+l*-o+M*-s-h*-i,t[1]=M*c+l*-i+h*-o-f*-s,t[2]=h*c+l*-s+f*-i-M*-o,t[3]=n[3],t},n.str=function(t){return"vec4("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+")"},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=n[0],s=n[1],c=n[2],f=n[3];return Math.abs(r-i)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(i))&&Math.abs(e-s)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(s))&&Math.abs(u-c)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(c))&&Math.abs(o-f)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(f))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(){var t=new a.ARRAY_TYPE(4);return a.ARRAY_TYPE!=Float32Array&&(t[0]=0,t[1]=0,t[2]=0,t[3]=0),t}function u(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t[3]=n[3]-r[3],t}function o(t,n,r){return t[0]=n[0]*r[0],t[1]=n[1]*r[1],t[2]=n[2]*r[2],t[3]=n[3]*r[3],t}function i(t,n,r){return t[0]=n[0]/r[0],t[1]=n[1]/r[1],t[2]=n[2]/r[2],t[3]=n[3]/r[3],t}function s(t,n){var r=n[0]-t[0],a=n[1]-t[1],e=n[2]-t[2],u=n[3]-t[3];return Math.sqrt(r*r+a*a+e*e+u*u)}function c(t,n){var r=n[0]-t[0],a=n[1]-t[1],e=n[2]-t[2],u=n[3]-t[3];return r*r+a*a+e*e+u*u}function f(t){var n=t[0],r=t[1],a=t[2],e=t[3];return Math.sqrt(n*n+r*r+a*a+e*e)}function M(t){var n=t[0],r=t[1],a=t[2],e=t[3];return n*n+r*r+a*a+e*e}n.sub=u,n.mul=o,n.div=i,n.dist=s,n.sqrDist=c,n.len=f,n.sqrLen=M,n.forEach=function(){var t=e();return function(n,r,a,e,u,o){var i=void 0,s=void 0;for(r||(r=4),a||(a=0),s=e?Math.min(e*r+a,n.length):n.length,i=a;i<s;i+=r)t[0]=n[i],t[1]=n[i+1],t[2]=n[i+2],t[3]=n[i+3],u(t,t,o),n[i]=t[0],n[i+1]=t[1],n[i+2]=t[2],n[i+3]=t[3];return n}}()},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.forEach=n.sqrLen=n.len=n.sqrDist=n.dist=n.div=n.mul=n.sub=void 0,n.create=e,n.clone=function(t){var n=new a.ARRAY_TYPE(3);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n},n.length=u,n.fromValues=o,n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t},n.set=function(t,n,r,a){return t[0]=n,t[1]=r,t[2]=a,t},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t},n.subtract=i,n.multiply=s,n.divide=c,n.ceil=function(t,n){return t[0]=Math.ceil(n[0]),t[1]=Math.ceil(n[1]),t[2]=Math.ceil(n[2]),t},n.floor=function(t,n){return t[0]=Math.floor(n[0]),t[1]=Math.floor(n[1]),t[2]=Math.floor(n[2]),t},n.min=function(t,n,r){return t[0]=Math.min(n[0],r[0]),t[1]=Math.min(n[1],r[1]),t[2]=Math.min(n[2],r[2]),t},n.max=function(t,n,r){return t[0]=Math.max(n[0],r[0]),t[1]=Math.max(n[1],r[1]),t[2]=Math.max(n[2],r[2]),t},n.round=function(t,n){return t[0]=Math.round(n[0]),t[1]=Math.round(n[1]),t[2]=Math.round(n[2]),t},n.scale=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t},n.scaleAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t},n.distance=f,n.squaredDistance=M,n.squaredLength=h,n.negate=function(t,n){return t[0]=-n[0],t[1]=-n[1],t[2]=-n[2],t},n.inverse=function(t,n){return t[0]=1/n[0],t[1]=1/n[1],t[2]=1/n[2],t},n.normalize=l,n.dot=v,n.cross=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=r[0],i=r[1],s=r[2];return t[0]=e*s-u*i,t[1]=u*o-a*s,t[2]=a*i-e*o,t},n.lerp=function(t,n,r,a){var e=n[0],u=n[1],o=n[2];return t[0]=e+a*(r[0]-e),t[1]=u+a*(r[1]-u),t[2]=o+a*(r[2]-o),t},n.hermite=function(t,n,r,a,e,u){var o=u*u,i=o*(2*u-3)+1,s=o*(u-2)+u,c=o*(u-1),f=o*(3-2*u);return t[0]=n[0]*i+r[0]*s+a[0]*c+e[0]*f,t[1]=n[1]*i+r[1]*s+a[1]*c+e[1]*f,t[2]=n[2]*i+r[2]*s+a[2]*c+e[2]*f,t},n.bezier=function(t,n,r,a,e,u){var o=1-u,i=o*o,s=u*u,c=i*o,f=3*u*i,M=3*s*o,h=s*u;return t[0]=n[0]*c+r[0]*f+a[0]*M+e[0]*h,t[1]=n[1]*c+r[1]*f+a[1]*M+e[1]*h,t[2]=n[2]*c+r[2]*f+a[2]*M+e[2]*h,t},n.random=function(t,n){n=n||1;var r=2*a.RANDOM()*Math.PI,e=2*a.RANDOM()-1,u=Math.sqrt(1-e*e)*n;return t[0]=Math.cos(r)*u,t[1]=Math.sin(r)*u,t[2]=e*n,t},n.transformMat4=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=r[3]*a+r[7]*e+r[11]*u+r[15];return o=o||1,t[0]=(r[0]*a+r[4]*e+r[8]*u+r[12])/o,t[1]=(r[1]*a+r[5]*e+r[9]*u+r[13])/o,t[2]=(r[2]*a+r[6]*e+r[10]*u+r[14])/o,t},n.transformMat3=function(t,n,r){var a=n[0],e=n[1],u=n[2];return t[0]=a*r[0]+e*r[3]+u*r[6],t[1]=a*r[1]+e*r[4]+u*r[7],t[2]=a*r[2]+e*r[5]+u*r[8],t},n.transformQuat=function(t,n,r){var a=r[0],e=r[1],u=r[2],o=r[3],i=n[0],s=n[1],c=n[2],f=e*c-u*s,M=u*i-a*c,h=a*s-e*i,l=e*h-u*M,v=u*f-a*h,d=a*M-e*f,b=2*o;return f*=b,M*=b,h*=b,l*=2,v*=2,d*=2,t[0]=i+f+l,t[1]=s+M+v,t[2]=c+h+d,t},n.rotateX=function(t,n,r,a){var e=[],u=[];return e[0]=n[0]-r[0],e[1]=n[1]-r[1],e[2]=n[2]-r[2],u[0]=e[0],u[1]=e[1]*Math.cos(a)-e[2]*Math.sin(a),u[2]=e[1]*Math.sin(a)+e[2]*Math.cos(a),t[0]=u[0]+r[0],t[1]=u[1]+r[1],t[2]=u[2]+r[2],t},n.rotateY=function(t,n,r,a){var e=[],u=[];return e[0]=n[0]-r[0],e[1]=n[1]-r[1],e[2]=n[2]-r[2],u[0]=e[2]*Math.sin(a)+e[0]*Math.cos(a),u[1]=e[1],u[2]=e[2]*Math.cos(a)-e[0]*Math.sin(a),t[0]=u[0]+r[0],t[1]=u[1]+r[1],t[2]=u[2]+r[2],t},n.rotateZ=function(t,n,r,a){var e=[],u=[];return e[0]=n[0]-r[0],e[1]=n[1]-r[1],e[2]=n[2]-r[2],u[0]=e[0]*Math.cos(a)-e[1]*Math.sin(a),u[1]=e[0]*Math.sin(a)+e[1]*Math.cos(a),u[2]=e[2],t[0]=u[0]+r[0],t[1]=u[1]+r[1],t[2]=u[2]+r[2],t},n.angle=function(t,n){var r=o(t[0],t[1],t[2]),a=o(n[0],n[1],n[2]);l(r,r),l(a,a);var e=v(r,a);return e>1?0:e<-1?Math.PI:Math.acos(e)},n.str=function(t){return"vec3("+t[0]+", "+t[1]+", "+t[2]+")"},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=n[0],i=n[1],s=n[2];return Math.abs(r-o)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(o))&&Math.abs(e-i)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(i))&&Math.abs(u-s)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(s))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(){var t=new a.ARRAY_TYPE(3);return a.ARRAY_TYPE!=Float32Array&&(t[0]=0,t[1]=0,t[2]=0),t}function u(t){var n=t[0],r=t[1],a=t[2];return Math.sqrt(n*n+r*r+a*a)}function o(t,n,r){var e=new a.ARRAY_TYPE(3);return e[0]=t,e[1]=n,e[2]=r,e}function i(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t}function s(t,n,r){return t[0]=n[0]*r[0],t[1]=n[1]*r[1],t[2]=n[2]*r[2],t}function c(t,n,r){return t[0]=n[0]/r[0],t[1]=n[1]/r[1],t[2]=n[2]/r[2],t}function f(t,n){var r=n[0]-t[0],a=n[1]-t[1],e=n[2]-t[2];return Math.sqrt(r*r+a*a+e*e)}function M(t,n){var r=n[0]-t[0],a=n[1]-t[1],e=n[2]-t[2];return r*r+a*a+e*e}function h(t){var n=t[0],r=t[1],a=t[2];return n*n+r*r+a*a}function l(t,n){var r=n[0],a=n[1],e=n[2],u=r*r+a*a+e*e;return u>0&&(u=1/Math.sqrt(u),t[0]=n[0]*u,t[1]=n[1]*u,t[2]=n[2]*u),t}function v(t,n){return t[0]*n[0]+t[1]*n[1]+t[2]*n[2]}n.sub=i,n.mul=s,n.div=c,n.dist=f,n.sqrDist=M,n.len=u,n.sqrLen=h,n.forEach=function(){var t=e();return function(n,r,a,e,u,o){var i=void 0,s=void 0;for(r||(r=3),a||(a=0),s=e?Math.min(e*r+a,n.length):n.length,i=a;i<s;i+=r)t[0]=n[i],t[1]=n[i+1],t[2]=n[i+2],u(t,t,o),n[i]=t[0],n[i+1]=t[1],n[i+2]=t[2];return n}}()},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.setAxes=n.sqlerp=n.rotationTo=n.equals=n.exactEquals=n.normalize=n.sqrLen=n.squaredLength=n.len=n.length=n.lerp=n.dot=n.scale=n.mul=n.add=n.set=n.copy=n.fromValues=n.clone=void 0,n.create=s,n.identity=function(t){return t[0]=0,t[1]=0,t[2]=0,t[3]=1,t},n.setAxisAngle=c,n.getAxisAngle=function(t,n){var r=2*Math.acos(n[3]),e=Math.sin(r/2);e>a.EPSILON?(t[0]=n[0]/e,t[1]=n[1]/e,t[2]=n[2]/e):(t[0]=1,t[1]=0,t[2]=0);return r},n.multiply=f,n.rotateX=function(t,n,r){r*=.5;var a=n[0],e=n[1],u=n[2],o=n[3],i=Math.sin(r),s=Math.cos(r);return t[0]=a*s+o*i,t[1]=e*s+u*i,t[2]=u*s-e*i,t[3]=o*s-a*i,t},n.rotateY=function(t,n,r){r*=.5;var a=n[0],e=n[1],u=n[2],o=n[3],i=Math.sin(r),s=Math.cos(r);return t[0]=a*s-u*i,t[1]=e*s+o*i,t[2]=u*s+a*i,t[3]=o*s-e*i,t},n.rotateZ=function(t,n,r){r*=.5;var a=n[0],e=n[1],u=n[2],o=n[3],i=Math.sin(r),s=Math.cos(r);return t[0]=a*s+e*i,t[1]=e*s-a*i,t[2]=u*s+o*i,t[3]=o*s-u*i,t},n.calculateW=function(t,n){var r=n[0],a=n[1],e=n[2];return t[0]=r,t[1]=a,t[2]=e,t[3]=Math.sqrt(Math.abs(1-r*r-a*a-e*e)),t},n.slerp=M,n.random=function(t){var n=a.RANDOM(),r=a.RANDOM(),e=a.RANDOM(),u=Math.sqrt(1-n),o=Math.sqrt(n);return t[0]=u*Math.sin(2*Math.PI*r),t[1]=u*Math.cos(2*Math.PI*r),t[2]=o*Math.sin(2*Math.PI*e),t[3]=o*Math.cos(2*Math.PI*e),t},n.invert=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=r*r+a*a+e*e+u*u,i=o?1/o:0;return t[0]=-r*i,t[1]=-a*i,t[2]=-e*i,t[3]=u*i,t},n.conjugate=function(t,n){return t[0]=-n[0],t[1]=-n[1],t[2]=-n[2],t[3]=n[3],t},n.fromMat3=h,n.fromEuler=function(t,n,r,a){var e=.5*Math.PI/180;n*=e,r*=e,a*=e;var u=Math.sin(n),o=Math.cos(n),i=Math.sin(r),s=Math.cos(r),c=Math.sin(a),f=Math.cos(a);return t[0]=u*s*f-o*i*c,t[1]=o*i*f+u*s*c,t[2]=o*s*c-u*i*f,t[3]=o*s*f+u*i*c,t},n.str=function(t){return"quat("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+")"};var a=i(r(0)),e=i(r(5)),u=i(r(2)),o=i(r(1));function i(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}function s(){var t=new a.ARRAY_TYPE(4);return a.ARRAY_TYPE!=Float32Array&&(t[0]=0,t[1]=0,t[2]=0),t[3]=1,t}function c(t,n,r){r*=.5;var a=Math.sin(r);return t[0]=a*n[0],t[1]=a*n[1],t[2]=a*n[2],t[3]=Math.cos(r),t}function f(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=r[0],s=r[1],c=r[2],f=r[3];return t[0]=a*f+o*i+e*c-u*s,t[1]=e*f+o*s+u*i-a*c,t[2]=u*f+o*c+a*s-e*i,t[3]=o*f-a*i-e*s-u*c,t}function M(t,n,r,e){var u=n[0],o=n[1],i=n[2],s=n[3],c=r[0],f=r[1],M=r[2],h=r[3],l=void 0,v=void 0,d=void 0,b=void 0,m=void 0;return(v=u*c+o*f+i*M+s*h)<0&&(v=-v,c=-c,f=-f,M=-M,h=-h),1-v>a.EPSILON?(l=Math.acos(v),d=Math.sin(l),b=Math.sin((1-e)*l)/d,m=Math.sin(e*l)/d):(b=1-e,m=e),t[0]=b*u+m*c,t[1]=b*o+m*f,t[2]=b*i+m*M,t[3]=b*s+m*h,t}function h(t,n){var r=n[0]+n[4]+n[8],a=void 0;if(r>0)a=Math.sqrt(r+1),t[3]=.5*a,a=.5/a,t[0]=(n[5]-n[7])*a,t[1]=(n[6]-n[2])*a,t[2]=(n[1]-n[3])*a;else{var e=0;n[4]>n[0]&&(e=1),n[8]>n[3*e+e]&&(e=2);var u=(e+1)%3,o=(e+2)%3;a=Math.sqrt(n[3*e+e]-n[3*u+u]-n[3*o+o]+1),t[e]=.5*a,a=.5/a,t[3]=(n[3*u+o]-n[3*o+u])*a,t[u]=(n[3*u+e]+n[3*e+u])*a,t[o]=(n[3*o+e]+n[3*e+o])*a}return t}n.clone=o.clone,n.fromValues=o.fromValues,n.copy=o.copy,n.set=o.set,n.add=o.add,n.mul=f,n.scale=o.scale,n.dot=o.dot,n.lerp=o.lerp;var l=n.length=o.length,v=(n.len=l,n.squaredLength=o.squaredLength),d=(n.sqrLen=v,n.normalize=o.normalize);n.exactEquals=o.exactEquals,n.equals=o.equals,n.rotationTo=function(){var t=u.create(),n=u.fromValues(1,0,0),r=u.fromValues(0,1,0);return function(a,e,o){var i=u.dot(e,o);return i<-.999999?(u.cross(t,n,e),u.len(t)<1e-6&&u.cross(t,r,e),u.normalize(t,t),c(a,t,Math.PI),a):i>.999999?(a[0]=0,a[1]=0,a[2]=0,a[3]=1,a):(u.cross(t,e,o),a[0]=t[0],a[1]=t[1],a[2]=t[2],a[3]=1+i,d(a,a))}}(),n.sqlerp=function(){var t=s(),n=s();return function(r,a,e,u,o,i){return M(t,a,o,i),M(n,e,u,i),M(r,t,n,2*i*(1-i)),r}}(),n.setAxes=function(){var t=e.create();return function(n,r,a,e){return t[0]=a[0],t[3]=a[1],t[6]=a[2],t[1]=e[0],t[4]=e[1],t[7]=e[2],t[2]=-r[0],t[5]=-r[1],t[8]=-r[2],d(n,h(n,t))}}()},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.sub=n.mul=void 0,n.create=function(){var t=new a.ARRAY_TYPE(16);a.ARRAY_TYPE!=Float32Array&&(t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[11]=0,t[12]=0,t[13]=0,t[14]=0);return t[0]=1,t[5]=1,t[10]=1,t[15]=1,t},n.clone=function(t){var n=new a.ARRAY_TYPE(16);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n[4]=t[4],n[5]=t[5],n[6]=t[6],n[7]=t[7],n[8]=t[8],n[9]=t[9],n[10]=t[10],n[11]=t[11],n[12]=t[12],n[13]=t[13],n[14]=t[14],n[15]=t[15],n},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[4]=n[4],t[5]=n[5],t[6]=n[6],t[7]=n[7],t[8]=n[8],t[9]=n[9],t[10]=n[10],t[11]=n[11],t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15],t},n.fromValues=function(t,n,r,e,u,o,i,s,c,f,M,h,l,v,d,b){var m=new a.ARRAY_TYPE(16);return m[0]=t,m[1]=n,m[2]=r,m[3]=e,m[4]=u,m[5]=o,m[6]=i,m[7]=s,m[8]=c,m[9]=f,m[10]=M,m[11]=h,m[12]=l,m[13]=v,m[14]=d,m[15]=b,m},n.set=function(t,n,r,a,e,u,o,i,s,c,f,M,h,l,v,d,b){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t[4]=u,t[5]=o,t[6]=i,t[7]=s,t[8]=c,t[9]=f,t[10]=M,t[11]=h,t[12]=l,t[13]=v,t[14]=d,t[15]=b,t},n.identity=e,n.transpose=function(t,n){if(t===n){var r=n[1],a=n[2],e=n[3],u=n[6],o=n[7],i=n[11];t[1]=n[4],t[2]=n[8],t[3]=n[12],t[4]=r,t[6]=n[9],t[7]=n[13],t[8]=a,t[9]=u,t[11]=n[14],t[12]=e,t[13]=o,t[14]=i}else t[0]=n[0],t[1]=n[4],t[2]=n[8],t[3]=n[12],t[4]=n[1],t[5]=n[5],t[6]=n[9],t[7]=n[13],t[8]=n[2],t[9]=n[6],t[10]=n[10],t[11]=n[14],t[12]=n[3],t[13]=n[7],t[14]=n[11],t[15]=n[15];return t},n.invert=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=n[6],c=n[7],f=n[8],M=n[9],h=n[10],l=n[11],v=n[12],d=n[13],b=n[14],m=n[15],p=r*i-a*o,P=r*s-e*o,A=r*c-u*o,E=a*s-e*i,O=a*c-u*i,R=e*c-u*s,y=f*d-M*v,q=f*b-h*v,x=f*m-l*v,_=M*b-h*d,Y=M*m-l*d,L=h*m-l*b,S=p*L-P*Y+A*_+E*x-O*q+R*y;if(!S)return null;return S=1/S,t[0]=(i*L-s*Y+c*_)*S,t[1]=(e*Y-a*L-u*_)*S,t[2]=(d*R-b*O+m*E)*S,t[3]=(h*O-M*R-l*E)*S,t[4]=(s*x-o*L-c*q)*S,t[5]=(r*L-e*x+u*q)*S,t[6]=(b*A-v*R-m*P)*S,t[7]=(f*R-h*A+l*P)*S,t[8]=(o*Y-i*x+c*y)*S,t[9]=(a*x-r*Y-u*y)*S,t[10]=(v*O-d*A+m*p)*S,t[11]=(M*A-f*O-l*p)*S,t[12]=(i*q-o*_-s*y)*S,t[13]=(r*_-a*q+e*y)*S,t[14]=(d*P-v*E-b*p)*S,t[15]=(f*E-M*P+h*p)*S,t},n.adjoint=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=n[6],c=n[7],f=n[8],M=n[9],h=n[10],l=n[11],v=n[12],d=n[13],b=n[14],m=n[15];return t[0]=i*(h*m-l*b)-M*(s*m-c*b)+d*(s*l-c*h),t[1]=-(a*(h*m-l*b)-M*(e*m-u*b)+d*(e*l-u*h)),t[2]=a*(s*m-c*b)-i*(e*m-u*b)+d*(e*c-u*s),t[3]=-(a*(s*l-c*h)-i*(e*l-u*h)+M*(e*c-u*s)),t[4]=-(o*(h*m-l*b)-f*(s*m-c*b)+v*(s*l-c*h)),t[5]=r*(h*m-l*b)-f*(e*m-u*b)+v*(e*l-u*h),t[6]=-(r*(s*m-c*b)-o*(e*m-u*b)+v*(e*c-u*s)),t[7]=r*(s*l-c*h)-o*(e*l-u*h)+f*(e*c-u*s),t[8]=o*(M*m-l*d)-f*(i*m-c*d)+v*(i*l-c*M),t[9]=-(r*(M*m-l*d)-f*(a*m-u*d)+v*(a*l-u*M)),t[10]=r*(i*m-c*d)-o*(a*m-u*d)+v*(a*c-u*i),t[11]=-(r*(i*l-c*M)-o*(a*l-u*M)+f*(a*c-u*i)),t[12]=-(o*(M*b-h*d)-f*(i*b-s*d)+v*(i*h-s*M)),t[13]=r*(M*b-h*d)-f*(a*b-e*d)+v*(a*h-e*M),t[14]=-(r*(i*b-s*d)-o*(a*b-e*d)+v*(a*s-e*i)),t[15]=r*(i*h-s*M)-o*(a*h-e*M)+f*(a*s-e*i),t},n.determinant=function(t){var n=t[0],r=t[1],a=t[2],e=t[3],u=t[4],o=t[5],i=t[6],s=t[7],c=t[8],f=t[9],M=t[10],h=t[11],l=t[12],v=t[13],d=t[14],b=t[15];return(n*o-r*u)*(M*b-h*d)-(n*i-a*u)*(f*b-h*v)+(n*s-e*u)*(f*d-M*v)+(r*i-a*o)*(c*b-h*l)-(r*s-e*o)*(c*d-M*l)+(a*s-e*i)*(c*v-f*l)},n.multiply=u,n.translate=function(t,n,r){var a=r[0],e=r[1],u=r[2],o=void 0,i=void 0,s=void 0,c=void 0,f=void 0,M=void 0,h=void 0,l=void 0,v=void 0,d=void 0,b=void 0,m=void 0;n===t?(t[12]=n[0]*a+n[4]*e+n[8]*u+n[12],t[13]=n[1]*a+n[5]*e+n[9]*u+n[13],t[14]=n[2]*a+n[6]*e+n[10]*u+n[14],t[15]=n[3]*a+n[7]*e+n[11]*u+n[15]):(o=n[0],i=n[1],s=n[2],c=n[3],f=n[4],M=n[5],h=n[6],l=n[7],v=n[8],d=n[9],b=n[10],m=n[11],t[0]=o,t[1]=i,t[2]=s,t[3]=c,t[4]=f,t[5]=M,t[6]=h,t[7]=l,t[8]=v,t[9]=d,t[10]=b,t[11]=m,t[12]=o*a+f*e+v*u+n[12],t[13]=i*a+M*e+d*u+n[13],t[14]=s*a+h*e+b*u+n[14],t[15]=c*a+l*e+m*u+n[15]);return t},n.scale=function(t,n,r){var a=r[0],e=r[1],u=r[2];return t[0]=n[0]*a,t[1]=n[1]*a,t[2]=n[2]*a,t[3]=n[3]*a,t[4]=n[4]*e,t[5]=n[5]*e,t[6]=n[6]*e,t[7]=n[7]*e,t[8]=n[8]*u,t[9]=n[9]*u,t[10]=n[10]*u,t[11]=n[11]*u,t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15],t},n.rotate=function(t,n,r,e){var u=e[0],o=e[1],i=e[2],s=Math.sqrt(u*u+o*o+i*i),c=void 0,f=void 0,M=void 0,h=void 0,l=void 0,v=void 0,d=void 0,b=void 0,m=void 0,p=void 0,P=void 0,A=void 0,E=void 0,O=void 0,R=void 0,y=void 0,q=void 0,x=void 0,_=void 0,Y=void 0,L=void 0,S=void 0,w=void 0,I=void 0;if(s<a.EPSILON)return null;u*=s=1/s,o*=s,i*=s,c=Math.sin(r),f=Math.cos(r),M=1-f,h=n[0],l=n[1],v=n[2],d=n[3],b=n[4],m=n[5],p=n[6],P=n[7],A=n[8],E=n[9],O=n[10],R=n[11],y=u*u*M+f,q=o*u*M+i*c,x=i*u*M-o*c,_=u*o*M-i*c,Y=o*o*M+f,L=i*o*M+u*c,S=u*i*M+o*c,w=o*i*M-u*c,I=i*i*M+f,t[0]=h*y+b*q+A*x,t[1]=l*y+m*q+E*x,t[2]=v*y+p*q+O*x,t[3]=d*y+P*q+R*x,t[4]=h*_+b*Y+A*L,t[5]=l*_+m*Y+E*L,t[6]=v*_+p*Y+O*L,t[7]=d*_+P*Y+R*L,t[8]=h*S+b*w+A*I,t[9]=l*S+m*w+E*I,t[10]=v*S+p*w+O*I,t[11]=d*S+P*w+R*I,n!==t&&(t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15]);return t},n.rotateX=function(t,n,r){var a=Math.sin(r),e=Math.cos(r),u=n[4],o=n[5],i=n[6],s=n[7],c=n[8],f=n[9],M=n[10],h=n[11];n!==t&&(t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15]);return t[4]=u*e+c*a,t[5]=o*e+f*a,t[6]=i*e+M*a,t[7]=s*e+h*a,t[8]=c*e-u*a,t[9]=f*e-o*a,t[10]=M*e-i*a,t[11]=h*e-s*a,t},n.rotateY=function(t,n,r){var a=Math.sin(r),e=Math.cos(r),u=n[0],o=n[1],i=n[2],s=n[3],c=n[8],f=n[9],M=n[10],h=n[11];n!==t&&(t[4]=n[4],t[5]=n[5],t[6]=n[6],t[7]=n[7],t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15]);return t[0]=u*e-c*a,t[1]=o*e-f*a,t[2]=i*e-M*a,t[3]=s*e-h*a,t[8]=u*a+c*e,t[9]=o*a+f*e,t[10]=i*a+M*e,t[11]=s*a+h*e,t},n.rotateZ=function(t,n,r){var a=Math.sin(r),e=Math.cos(r),u=n[0],o=n[1],i=n[2],s=n[3],c=n[4],f=n[5],M=n[6],h=n[7];n!==t&&(t[8]=n[8],t[9]=n[9],t[10]=n[10],t[11]=n[11],t[12]=n[12],t[13]=n[13],t[14]=n[14],t[15]=n[15]);return t[0]=u*e+c*a,t[1]=o*e+f*a,t[2]=i*e+M*a,t[3]=s*e+h*a,t[4]=c*e-u*a,t[5]=f*e-o*a,t[6]=M*e-i*a,t[7]=h*e-s*a,t},n.fromTranslation=function(t,n){return t[0]=1,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=1,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[10]=1,t[11]=0,t[12]=n[0],t[13]=n[1],t[14]=n[2],t[15]=1,t},n.fromScaling=function(t,n){return t[0]=n[0],t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=n[1],t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[10]=n[2],t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.fromRotation=function(t,n,r){var e=r[0],u=r[1],o=r[2],i=Math.sqrt(e*e+u*u+o*o),s=void 0,c=void 0,f=void 0;if(i<a.EPSILON)return null;return e*=i=1/i,u*=i,o*=i,s=Math.sin(n),c=Math.cos(n),f=1-c,t[0]=e*e*f+c,t[1]=u*e*f+o*s,t[2]=o*e*f-u*s,t[3]=0,t[4]=e*u*f-o*s,t[5]=u*u*f+c,t[6]=o*u*f+e*s,t[7]=0,t[8]=e*o*f+u*s,t[9]=u*o*f-e*s,t[10]=o*o*f+c,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.fromXRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=1,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=a,t[6]=r,t[7]=0,t[8]=0,t[9]=-r,t[10]=a,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.fromYRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=a,t[1]=0,t[2]=-r,t[3]=0,t[4]=0,t[5]=1,t[6]=0,t[7]=0,t[8]=r,t[9]=0,t[10]=a,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.fromZRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=a,t[1]=r,t[2]=0,t[3]=0,t[4]=-r,t[5]=a,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[10]=1,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.fromRotationTranslation=o,n.fromQuat2=function(t,n){var r=new a.ARRAY_TYPE(3),e=-n[0],u=-n[1],i=-n[2],s=n[3],c=n[4],f=n[5],M=n[6],h=n[7],l=e*e+u*u+i*i+s*s;l>0?(r[0]=2*(c*s+h*e+f*i-M*u)/l,r[1]=2*(f*s+h*u+M*e-c*i)/l,r[2]=2*(M*s+h*i+c*u-f*e)/l):(r[0]=2*(c*s+h*e+f*i-M*u),r[1]=2*(f*s+h*u+M*e-c*i),r[2]=2*(M*s+h*i+c*u-f*e));return o(t,n,r),t},n.getTranslation=function(t,n){return t[0]=n[12],t[1]=n[13],t[2]=n[14],t},n.getScaling=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[4],o=n[5],i=n[6],s=n[8],c=n[9],f=n[10];return t[0]=Math.sqrt(r*r+a*a+e*e),t[1]=Math.sqrt(u*u+o*o+i*i),t[2]=Math.sqrt(s*s+c*c+f*f),t},n.getRotation=function(t,n){var r=n[0]+n[5]+n[10],a=0;r>0?(a=2*Math.sqrt(r+1),t[3]=.25*a,t[0]=(n[6]-n[9])/a,t[1]=(n[8]-n[2])/a,t[2]=(n[1]-n[4])/a):n[0]>n[5]&&n[0]>n[10]?(a=2*Math.sqrt(1+n[0]-n[5]-n[10]),t[3]=(n[6]-n[9])/a,t[0]=.25*a,t[1]=(n[1]+n[4])/a,t[2]=(n[8]+n[2])/a):n[5]>n[10]?(a=2*Math.sqrt(1+n[5]-n[0]-n[10]),t[3]=(n[8]-n[2])/a,t[0]=(n[1]+n[4])/a,t[1]=.25*a,t[2]=(n[6]+n[9])/a):(a=2*Math.sqrt(1+n[10]-n[0]-n[5]),t[3]=(n[1]-n[4])/a,t[0]=(n[8]+n[2])/a,t[1]=(n[6]+n[9])/a,t[2]=.25*a);return t},n.fromRotationTranslationScale=function(t,n,r,a){var e=n[0],u=n[1],o=n[2],i=n[3],s=e+e,c=u+u,f=o+o,M=e*s,h=e*c,l=e*f,v=u*c,d=u*f,b=o*f,m=i*s,p=i*c,P=i*f,A=a[0],E=a[1],O=a[2];return t[0]=(1-(v+b))*A,t[1]=(h+P)*A,t[2]=(l-p)*A,t[3]=0,t[4]=(h-P)*E,t[5]=(1-(M+b))*E,t[6]=(d+m)*E,t[7]=0,t[8]=(l+p)*O,t[9]=(d-m)*O,t[10]=(1-(M+v))*O,t[11]=0,t[12]=r[0],t[13]=r[1],t[14]=r[2],t[15]=1,t},n.fromRotationTranslationScaleOrigin=function(t,n,r,a,e){var u=n[0],o=n[1],i=n[2],s=n[3],c=u+u,f=o+o,M=i+i,h=u*c,l=u*f,v=u*M,d=o*f,b=o*M,m=i*M,p=s*c,P=s*f,A=s*M,E=a[0],O=a[1],R=a[2],y=e[0],q=e[1],x=e[2],_=(1-(d+m))*E,Y=(l+A)*E,L=(v-P)*E,S=(l-A)*O,w=(1-(h+m))*O,I=(b+p)*O,N=(v+P)*R,g=(b-p)*R,T=(1-(h+d))*R;return t[0]=_,t[1]=Y,t[2]=L,t[3]=0,t[4]=S,t[5]=w,t[6]=I,t[7]=0,t[8]=N,t[9]=g,t[10]=T,t[11]=0,t[12]=r[0]+y-(_*y+S*q+N*x),t[13]=r[1]+q-(Y*y+w*q+g*x),t[14]=r[2]+x-(L*y+I*q+T*x),t[15]=1,t},n.fromQuat=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=r+r,i=a+a,s=e+e,c=r*o,f=a*o,M=a*i,h=e*o,l=e*i,v=e*s,d=u*o,b=u*i,m=u*s;return t[0]=1-M-v,t[1]=f+m,t[2]=h-b,t[3]=0,t[4]=f-m,t[5]=1-c-v,t[6]=l+d,t[7]=0,t[8]=h+b,t[9]=l-d,t[10]=1-c-M,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t},n.frustum=function(t,n,r,a,e,u,o){var i=1/(r-n),s=1/(e-a),c=1/(u-o);return t[0]=2*u*i,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=2*u*s,t[6]=0,t[7]=0,t[8]=(r+n)*i,t[9]=(e+a)*s,t[10]=(o+u)*c,t[11]=-1,t[12]=0,t[13]=0,t[14]=o*u*2*c,t[15]=0,t},n.perspective=function(t,n,r,a,e){var u=1/Math.tan(n/2),o=void 0;t[0]=u/r,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=u,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[11]=-1,t[12]=0,t[13]=0,t[15]=0,null!=e&&e!==1/0?(o=1/(a-e),t[10]=(e+a)*o,t[14]=2*e*a*o):(t[10]=-1,t[14]=-2*a);return t},n.perspectiveFromFieldOfView=function(t,n,r,a){var e=Math.tan(n.upDegrees*Math.PI/180),u=Math.tan(n.downDegrees*Math.PI/180),o=Math.tan(n.leftDegrees*Math.PI/180),i=Math.tan(n.rightDegrees*Math.PI/180),s=2/(o+i),c=2/(e+u);return t[0]=s,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=c,t[6]=0,t[7]=0,t[8]=-(o-i)*s*.5,t[9]=(e-u)*c*.5,t[10]=a/(r-a),t[11]=-1,t[12]=0,t[13]=0,t[14]=a*r/(r-a),t[15]=0,t},n.ortho=function(t,n,r,a,e,u,o){var i=1/(n-r),s=1/(a-e),c=1/(u-o);return t[0]=-2*i,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=-2*s,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[10]=2*c,t[11]=0,t[12]=(n+r)*i,t[13]=(e+a)*s,t[14]=(o+u)*c,t[15]=1,t},n.lookAt=function(t,n,r,u){var o=void 0,i=void 0,s=void 0,c=void 0,f=void 0,M=void 0,h=void 0,l=void 0,v=void 0,d=void 0,b=n[0],m=n[1],p=n[2],P=u[0],A=u[1],E=u[2],O=r[0],R=r[1],y=r[2];if(Math.abs(b-O)<a.EPSILON&&Math.abs(m-R)<a.EPSILON&&Math.abs(p-y)<a.EPSILON)return e(t);h=b-O,l=m-R,v=p-y,d=1/Math.sqrt(h*h+l*l+v*v),o=A*(v*=d)-E*(l*=d),i=E*(h*=d)-P*v,s=P*l-A*h,(d=Math.sqrt(o*o+i*i+s*s))?(o*=d=1/d,i*=d,s*=d):(o=0,i=0,s=0);c=l*s-v*i,f=v*o-h*s,M=h*i-l*o,(d=Math.sqrt(c*c+f*f+M*M))?(c*=d=1/d,f*=d,M*=d):(c=0,f=0,M=0);return t[0]=o,t[1]=c,t[2]=h,t[3]=0,t[4]=i,t[5]=f,t[6]=l,t[7]=0,t[8]=s,t[9]=M,t[10]=v,t[11]=0,t[12]=-(o*b+i*m+s*p),t[13]=-(c*b+f*m+M*p),t[14]=-(h*b+l*m+v*p),t[15]=1,t},n.targetTo=function(t,n,r,a){var e=n[0],u=n[1],o=n[2],i=a[0],s=a[1],c=a[2],f=e-r[0],M=u-r[1],h=o-r[2],l=f*f+M*M+h*h;l>0&&(l=1/Math.sqrt(l),f*=l,M*=l,h*=l);var v=s*h-c*M,d=c*f-i*h,b=i*M-s*f;(l=v*v+d*d+b*b)>0&&(l=1/Math.sqrt(l),v*=l,d*=l,b*=l);return t[0]=v,t[1]=d,t[2]=b,t[3]=0,t[4]=M*b-h*d,t[5]=h*v-f*b,t[6]=f*d-M*v,t[7]=0,t[8]=f,t[9]=M,t[10]=h,t[11]=0,t[12]=e,t[13]=u,t[14]=o,t[15]=1,t},n.str=function(t){return"mat4("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+", "+t[4]+", "+t[5]+", "+t[6]+", "+t[7]+", "+t[8]+", "+t[9]+", "+t[10]+", "+t[11]+", "+t[12]+", "+t[13]+", "+t[14]+", "+t[15]+")"},n.frob=function(t){return Math.sqrt(Math.pow(t[0],2)+Math.pow(t[1],2)+Math.pow(t[2],2)+Math.pow(t[3],2)+Math.pow(t[4],2)+Math.pow(t[5],2)+Math.pow(t[6],2)+Math.pow(t[7],2)+Math.pow(t[8],2)+Math.pow(t[9],2)+Math.pow(t[10],2)+Math.pow(t[11],2)+Math.pow(t[12],2)+Math.pow(t[13],2)+Math.pow(t[14],2)+Math.pow(t[15],2))},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t[4]=n[4]+r[4],t[5]=n[5]+r[5],t[6]=n[6]+r[6],t[7]=n[7]+r[7],t[8]=n[8]+r[8],t[9]=n[9]+r[9],t[10]=n[10]+r[10],t[11]=n[11]+r[11],t[12]=n[12]+r[12],t[13]=n[13]+r[13],t[14]=n[14]+r[14],t[15]=n[15]+r[15],t},n.subtract=i,n.multiplyScalar=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t[4]=n[4]*r,t[5]=n[5]*r,t[6]=n[6]*r,t[7]=n[7]*r,t[8]=n[8]*r,t[9]=n[9]*r,t[10]=n[10]*r,t[11]=n[11]*r,t[12]=n[12]*r,t[13]=n[13]*r,t[14]=n[14]*r,t[15]=n[15]*r,t},n.multiplyScalarAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t[3]=n[3]+r[3]*a,t[4]=n[4]+r[4]*a,t[5]=n[5]+r[5]*a,t[6]=n[6]+r[6]*a,t[7]=n[7]+r[7]*a,t[8]=n[8]+r[8]*a,t[9]=n[9]+r[9]*a,t[10]=n[10]+r[10]*a,t[11]=n[11]+r[11]*a,t[12]=n[12]+r[12]*a,t[13]=n[13]+r[13]*a,t[14]=n[14]+r[14]*a,t[15]=n[15]+r[15]*a,t},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]&&t[4]===n[4]&&t[5]===n[5]&&t[6]===n[6]&&t[7]===n[7]&&t[8]===n[8]&&t[9]===n[9]&&t[10]===n[10]&&t[11]===n[11]&&t[12]===n[12]&&t[13]===n[13]&&t[14]===n[14]&&t[15]===n[15]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=t[4],s=t[5],c=t[6],f=t[7],M=t[8],h=t[9],l=t[10],v=t[11],d=t[12],b=t[13],m=t[14],p=t[15],P=n[0],A=n[1],E=n[2],O=n[3],R=n[4],y=n[5],q=n[6],x=n[7],_=n[8],Y=n[9],L=n[10],S=n[11],w=n[12],I=n[13],N=n[14],g=n[15];return Math.abs(r-P)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(P))&&Math.abs(e-A)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(A))&&Math.abs(u-E)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(E))&&Math.abs(o-O)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(O))&&Math.abs(i-R)<=a.EPSILON*Math.max(1,Math.abs(i),Math.abs(R))&&Math.abs(s-y)<=a.EPSILON*Math.max(1,Math.abs(s),Math.abs(y))&&Math.abs(c-q)<=a.EPSILON*Math.max(1,Math.abs(c),Math.abs(q))&&Math.abs(f-x)<=a.EPSILON*Math.max(1,Math.abs(f),Math.abs(x))&&Math.abs(M-_)<=a.EPSILON*Math.max(1,Math.abs(M),Math.abs(_))&&Math.abs(h-Y)<=a.EPSILON*Math.max(1,Math.abs(h),Math.abs(Y))&&Math.abs(l-L)<=a.EPSILON*Math.max(1,Math.abs(l),Math.abs(L))&&Math.abs(v-S)<=a.EPSILON*Math.max(1,Math.abs(v),Math.abs(S))&&Math.abs(d-w)<=a.EPSILON*Math.max(1,Math.abs(d),Math.abs(w))&&Math.abs(b-I)<=a.EPSILON*Math.max(1,Math.abs(b),Math.abs(I))&&Math.abs(m-N)<=a.EPSILON*Math.max(1,Math.abs(m),Math.abs(N))&&Math.abs(p-g)<=a.EPSILON*Math.max(1,Math.abs(p),Math.abs(g))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(t){return t[0]=1,t[1]=0,t[2]=0,t[3]=0,t[4]=0,t[5]=1,t[6]=0,t[7]=0,t[8]=0,t[9]=0,t[10]=1,t[11]=0,t[12]=0,t[13]=0,t[14]=0,t[15]=1,t}function u(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=n[6],f=n[7],M=n[8],h=n[9],l=n[10],v=n[11],d=n[12],b=n[13],m=n[14],p=n[15],P=r[0],A=r[1],E=r[2],O=r[3];return t[0]=P*a+A*i+E*M+O*d,t[1]=P*e+A*s+E*h+O*b,t[2]=P*u+A*c+E*l+O*m,t[3]=P*o+A*f+E*v+O*p,P=r[4],A=r[5],E=r[6],O=r[7],t[4]=P*a+A*i+E*M+O*d,t[5]=P*e+A*s+E*h+O*b,t[6]=P*u+A*c+E*l+O*m,t[7]=P*o+A*f+E*v+O*p,P=r[8],A=r[9],E=r[10],O=r[11],t[8]=P*a+A*i+E*M+O*d,t[9]=P*e+A*s+E*h+O*b,t[10]=P*u+A*c+E*l+O*m,t[11]=P*o+A*f+E*v+O*p,P=r[12],A=r[13],E=r[14],O=r[15],t[12]=P*a+A*i+E*M+O*d,t[13]=P*e+A*s+E*h+O*b,t[14]=P*u+A*c+E*l+O*m,t[15]=P*o+A*f+E*v+O*p,t}function o(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=a+a,s=e+e,c=u+u,f=a*i,M=a*s,h=a*c,l=e*s,v=e*c,d=u*c,b=o*i,m=o*s,p=o*c;return t[0]=1-(l+d),t[1]=M+p,t[2]=h-m,t[3]=0,t[4]=M-p,t[5]=1-(f+d),t[6]=v+b,t[7]=0,t[8]=h+m,t[9]=v-b,t[10]=1-(f+l),t[11]=0,t[12]=r[0],t[13]=r[1],t[14]=r[2],t[15]=1,t}function i(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t[3]=n[3]-r[3],t[4]=n[4]-r[4],t[5]=n[5]-r[5],t[6]=n[6]-r[6],t[7]=n[7]-r[7],t[8]=n[8]-r[8],t[9]=n[9]-r[9],t[10]=n[10]-r[10],t[11]=n[11]-r[11],t[12]=n[12]-r[12],t[13]=n[13]-r[13],t[14]=n[14]-r[14],t[15]=n[15]-r[15],t}n.mul=u,n.sub=i},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.sub=n.mul=void 0,n.create=function(){var t=new a.ARRAY_TYPE(9);a.ARRAY_TYPE!=Float32Array&&(t[1]=0,t[2]=0,t[3]=0,t[5]=0,t[6]=0,t[7]=0);return t[0]=1,t[4]=1,t[8]=1,t},n.fromMat4=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[4],t[4]=n[5],t[5]=n[6],t[6]=n[8],t[7]=n[9],t[8]=n[10],t},n.clone=function(t){var n=new a.ARRAY_TYPE(9);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n[4]=t[4],n[5]=t[5],n[6]=t[6],n[7]=t[7],n[8]=t[8],n},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[4]=n[4],t[5]=n[5],t[6]=n[6],t[7]=n[7],t[8]=n[8],t},n.fromValues=function(t,n,r,e,u,o,i,s,c){var f=new a.ARRAY_TYPE(9);return f[0]=t,f[1]=n,f[2]=r,f[3]=e,f[4]=u,f[5]=o,f[6]=i,f[7]=s,f[8]=c,f},n.set=function(t,n,r,a,e,u,o,i,s,c){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t[4]=u,t[5]=o,t[6]=i,t[7]=s,t[8]=c,t},n.identity=function(t){return t[0]=1,t[1]=0,t[2]=0,t[3]=0,t[4]=1,t[5]=0,t[6]=0,t[7]=0,t[8]=1,t},n.transpose=function(t,n){if(t===n){var r=n[1],a=n[2],e=n[5];t[1]=n[3],t[2]=n[6],t[3]=r,t[5]=n[7],t[6]=a,t[7]=e}else t[0]=n[0],t[1]=n[3],t[2]=n[6],t[3]=n[1],t[4]=n[4],t[5]=n[7],t[6]=n[2],t[7]=n[5],t[8]=n[8];return t},n.invert=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=n[6],c=n[7],f=n[8],M=f*o-i*c,h=-f*u+i*s,l=c*u-o*s,v=r*M+a*h+e*l;if(!v)return null;return v=1/v,t[0]=M*v,t[1]=(-f*a+e*c)*v,t[2]=(i*a-e*o)*v,t[3]=h*v,t[4]=(f*r-e*s)*v,t[5]=(-i*r+e*u)*v,t[6]=l*v,t[7]=(-c*r+a*s)*v,t[8]=(o*r-a*u)*v,t},n.adjoint=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=n[6],c=n[7],f=n[8];return t[0]=o*f-i*c,t[1]=e*c-a*f,t[2]=a*i-e*o,t[3]=i*s-u*f,t[4]=r*f-e*s,t[5]=e*u-r*i,t[6]=u*c-o*s,t[7]=a*s-r*c,t[8]=r*o-a*u,t},n.determinant=function(t){var n=t[0],r=t[1],a=t[2],e=t[3],u=t[4],o=t[5],i=t[6],s=t[7],c=t[8];return n*(c*u-o*s)+r*(-c*e+o*i)+a*(s*e-u*i)},n.multiply=e,n.translate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=n[6],f=n[7],M=n[8],h=r[0],l=r[1];return t[0]=a,t[1]=e,t[2]=u,t[3]=o,t[4]=i,t[5]=s,t[6]=h*a+l*o+c,t[7]=h*e+l*i+f,t[8]=h*u+l*s+M,t},n.rotate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=n[6],f=n[7],M=n[8],h=Math.sin(r),l=Math.cos(r);return t[0]=l*a+h*o,t[1]=l*e+h*i,t[2]=l*u+h*s,t[3]=l*o-h*a,t[4]=l*i-h*e,t[5]=l*s-h*u,t[6]=c,t[7]=f,t[8]=M,t},n.scale=function(t,n,r){var a=r[0],e=r[1];return t[0]=a*n[0],t[1]=a*n[1],t[2]=a*n[2],t[3]=e*n[3],t[4]=e*n[4],t[5]=e*n[5],t[6]=n[6],t[7]=n[7],t[8]=n[8],t},n.fromTranslation=function(t,n){return t[0]=1,t[1]=0,t[2]=0,t[3]=0,t[4]=1,t[5]=0,t[6]=n[0],t[7]=n[1],t[8]=1,t},n.fromRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=a,t[1]=r,t[2]=0,t[3]=-r,t[4]=a,t[5]=0,t[6]=0,t[7]=0,t[8]=1,t},n.fromScaling=function(t,n){return t[0]=n[0],t[1]=0,t[2]=0,t[3]=0,t[4]=n[1],t[5]=0,t[6]=0,t[7]=0,t[8]=1,t},n.fromMat2d=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=0,t[3]=n[2],t[4]=n[3],t[5]=0,t[6]=n[4],t[7]=n[5],t[8]=1,t},n.fromQuat=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=r+r,i=a+a,s=e+e,c=r*o,f=a*o,M=a*i,h=e*o,l=e*i,v=e*s,d=u*o,b=u*i,m=u*s;return t[0]=1-M-v,t[3]=f-m,t[6]=h+b,t[1]=f+m,t[4]=1-c-v,t[7]=l-d,t[2]=h-b,t[5]=l+d,t[8]=1-c-M,t},n.normalFromMat4=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=n[6],c=n[7],f=n[8],M=n[9],h=n[10],l=n[11],v=n[12],d=n[13],b=n[14],m=n[15],p=r*i-a*o,P=r*s-e*o,A=r*c-u*o,E=a*s-e*i,O=a*c-u*i,R=e*c-u*s,y=f*d-M*v,q=f*b-h*v,x=f*m-l*v,_=M*b-h*d,Y=M*m-l*d,L=h*m-l*b,S=p*L-P*Y+A*_+E*x-O*q+R*y;if(!S)return null;return S=1/S,t[0]=(i*L-s*Y+c*_)*S,t[1]=(s*x-o*L-c*q)*S,t[2]=(o*Y-i*x+c*y)*S,t[3]=(e*Y-a*L-u*_)*S,t[4]=(r*L-e*x+u*q)*S,t[5]=(a*x-r*Y-u*y)*S,t[6]=(d*R-b*O+m*E)*S,t[7]=(b*A-v*R-m*P)*S,t[8]=(v*O-d*A+m*p)*S,t},n.projection=function(t,n,r){return t[0]=2/n,t[1]=0,t[2]=0,t[3]=0,t[4]=-2/r,t[5]=0,t[6]=-1,t[7]=1,t[8]=1,t},n.str=function(t){return"mat3("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+", "+t[4]+", "+t[5]+", "+t[6]+", "+t[7]+", "+t[8]+")"},n.frob=function(t){return Math.sqrt(Math.pow(t[0],2)+Math.pow(t[1],2)+Math.pow(t[2],2)+Math.pow(t[3],2)+Math.pow(t[4],2)+Math.pow(t[5],2)+Math.pow(t[6],2)+Math.pow(t[7],2)+Math.pow(t[8],2))},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t[4]=n[4]+r[4],t[5]=n[5]+r[5],t[6]=n[6]+r[6],t[7]=n[7]+r[7],t[8]=n[8]+r[8],t},n.subtract=u,n.multiplyScalar=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t[4]=n[4]*r,t[5]=n[5]*r,t[6]=n[6]*r,t[7]=n[7]*r,t[8]=n[8]*r,t},n.multiplyScalarAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t[3]=n[3]+r[3]*a,t[4]=n[4]+r[4]*a,t[5]=n[5]+r[5]*a,t[6]=n[6]+r[6]*a,t[7]=n[7]+r[7]*a,t[8]=n[8]+r[8]*a,t},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]&&t[4]===n[4]&&t[5]===n[5]&&t[6]===n[6]&&t[7]===n[7]&&t[8]===n[8]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=t[4],s=t[5],c=t[6],f=t[7],M=t[8],h=n[0],l=n[1],v=n[2],d=n[3],b=n[4],m=n[5],p=n[6],P=n[7],A=n[8];return Math.abs(r-h)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(h))&&Math.abs(e-l)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(l))&&Math.abs(u-v)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(v))&&Math.abs(o-d)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(d))&&Math.abs(i-b)<=a.EPSILON*Math.max(1,Math.abs(i),Math.abs(b))&&Math.abs(s-m)<=a.EPSILON*Math.max(1,Math.abs(s),Math.abs(m))&&Math.abs(c-p)<=a.EPSILON*Math.max(1,Math.abs(c),Math.abs(p))&&Math.abs(f-P)<=a.EPSILON*Math.max(1,Math.abs(f),Math.abs(P))&&Math.abs(M-A)<=a.EPSILON*Math.max(1,Math.abs(M),Math.abs(A))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=n[6],f=n[7],M=n[8],h=r[0],l=r[1],v=r[2],d=r[3],b=r[4],m=r[5],p=r[6],P=r[7],A=r[8];return t[0]=h*a+l*o+v*c,t[1]=h*e+l*i+v*f,t[2]=h*u+l*s+v*M,t[3]=d*a+b*o+m*c,t[4]=d*e+b*i+m*f,t[5]=d*u+b*s+m*M,t[6]=p*a+P*o+A*c,t[7]=p*e+P*i+A*f,t[8]=p*u+P*s+A*M,t}function u(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t[3]=n[3]-r[3],t[4]=n[4]-r[4],t[5]=n[5]-r[5],t[6]=n[6]-r[6],t[7]=n[7]-r[7],t[8]=n[8]-r[8],t}n.mul=e,n.sub=u},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.forEach=n.sqrLen=n.sqrDist=n.dist=n.div=n.mul=n.sub=n.len=void 0,n.create=e,n.clone=function(t){var n=new a.ARRAY_TYPE(2);return n[0]=t[0],n[1]=t[1],n},n.fromValues=function(t,n){var r=new a.ARRAY_TYPE(2);return r[0]=t,r[1]=n,r},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t},n.set=function(t,n,r){return t[0]=n,t[1]=r,t},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t},n.subtract=u,n.multiply=o,n.divide=i,n.ceil=function(t,n){return t[0]=Math.ceil(n[0]),t[1]=Math.ceil(n[1]),t},n.floor=function(t,n){return t[0]=Math.floor(n[0]),t[1]=Math.floor(n[1]),t},n.min=function(t,n,r){return t[0]=Math.min(n[0],r[0]),t[1]=Math.min(n[1],r[1]),t},n.max=function(t,n,r){return t[0]=Math.max(n[0],r[0]),t[1]=Math.max(n[1],r[1]),t},n.round=function(t,n){return t[0]=Math.round(n[0]),t[1]=Math.round(n[1]),t},n.scale=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t},n.scaleAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t},n.distance=s,n.squaredDistance=c,n.length=f,n.squaredLength=M,n.negate=function(t,n){return t[0]=-n[0],t[1]=-n[1],t},n.inverse=function(t,n){return t[0]=1/n[0],t[1]=1/n[1],t},n.normalize=function(t,n){var r=n[0],a=n[1],e=r*r+a*a;e>0&&(e=1/Math.sqrt(e),t[0]=n[0]*e,t[1]=n[1]*e);return t},n.dot=function(t,n){return t[0]*n[0]+t[1]*n[1]},n.cross=function(t,n,r){var a=n[0]*r[1]-n[1]*r[0];return t[0]=t[1]=0,t[2]=a,t},n.lerp=function(t,n,r,a){var e=n[0],u=n[1];return t[0]=e+a*(r[0]-e),t[1]=u+a*(r[1]-u),t},n.random=function(t,n){n=n||1;var r=2*a.RANDOM()*Math.PI;return t[0]=Math.cos(r)*n,t[1]=Math.sin(r)*n,t},n.transformMat2=function(t,n,r){var a=n[0],e=n[1];return t[0]=r[0]*a+r[2]*e,t[1]=r[1]*a+r[3]*e,t},n.transformMat2d=function(t,n,r){var a=n[0],e=n[1];return t[0]=r[0]*a+r[2]*e+r[4],t[1]=r[1]*a+r[3]*e+r[5],t},n.transformMat3=function(t,n,r){var a=n[0],e=n[1];return t[0]=r[0]*a+r[3]*e+r[6],t[1]=r[1]*a+r[4]*e+r[7],t},n.transformMat4=function(t,n,r){var a=n[0],e=n[1];return t[0]=r[0]*a+r[4]*e+r[12],t[1]=r[1]*a+r[5]*e+r[13],t},n.rotate=function(t,n,r,a){var e=n[0]-r[0],u=n[1]-r[1],o=Math.sin(a),i=Math.cos(a);return t[0]=e*i-u*o+r[0],t[1]=e*o+u*i+r[1],t},n.angle=function(t,n){var r=t[0],a=t[1],e=n[0],u=n[1],o=r*r+a*a;o>0&&(o=1/Math.sqrt(o));var i=e*e+u*u;i>0&&(i=1/Math.sqrt(i));var s=(r*e+a*u)*o*i;return s>1?0:s<-1?Math.PI:Math.acos(s)},n.str=function(t){return"vec2("+t[0]+", "+t[1]+")"},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]},n.equals=function(t,n){var r=t[0],e=t[1],u=n[0],o=n[1];return Math.abs(r-u)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(u))&&Math.abs(e-o)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(o))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(){var t=new a.ARRAY_TYPE(2);return a.ARRAY_TYPE!=Float32Array&&(t[0]=0,t[1]=0),t}function u(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t}function o(t,n,r){return t[0]=n[0]*r[0],t[1]=n[1]*r[1],t}function i(t,n,r){return t[0]=n[0]/r[0],t[1]=n[1]/r[1],t}function s(t,n){var r=n[0]-t[0],a=n[1]-t[1];return Math.sqrt(r*r+a*a)}function c(t,n){var r=n[0]-t[0],a=n[1]-t[1];return r*r+a*a}function f(t){var n=t[0],r=t[1];return Math.sqrt(n*n+r*r)}function M(t){var n=t[0],r=t[1];return n*n+r*r}n.len=f,n.sub=u,n.mul=o,n.div=i,n.dist=s,n.sqrDist=c,n.sqrLen=M,n.forEach=function(){var t=e();return function(n,r,a,e,u,o){var i=void 0,s=void 0;for(r||(r=2),a||(a=0),s=e?Math.min(e*r+a,n.length):n.length,i=a;i<s;i+=r)t[0]=n[i],t[1]=n[i+1],u(t,t,o),n[i]=t[0],n[i+1]=t[1];return n}}()},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.sqrLen=n.squaredLength=n.len=n.length=n.dot=n.mul=n.setReal=n.getReal=void 0,n.create=function(){var t=new a.ARRAY_TYPE(8);a.ARRAY_TYPE!=Float32Array&&(t[0]=0,t[1]=0,t[2]=0,t[4]=0,t[5]=0,t[6]=0,t[7]=0);return t[3]=1,t},n.clone=function(t){var n=new a.ARRAY_TYPE(8);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n[4]=t[4],n[5]=t[5],n[6]=t[6],n[7]=t[7],n},n.fromValues=function(t,n,r,e,u,o,i,s){var c=new a.ARRAY_TYPE(8);return c[0]=t,c[1]=n,c[2]=r,c[3]=e,c[4]=u,c[5]=o,c[6]=i,c[7]=s,c},n.fromRotationTranslationValues=function(t,n,r,e,u,o,i){var s=new a.ARRAY_TYPE(8);s[0]=t,s[1]=n,s[2]=r,s[3]=e;var c=.5*u,f=.5*o,M=.5*i;return s[4]=c*e+f*r-M*n,s[5]=f*e+M*t-c*r,s[6]=M*e+c*n-f*t,s[7]=-c*t-f*n-M*r,s},n.fromRotationTranslation=i,n.fromTranslation=function(t,n){return t[0]=0,t[1]=0,t[2]=0,t[3]=1,t[4]=.5*n[0],t[5]=.5*n[1],t[6]=.5*n[2],t[7]=0,t},n.fromRotation=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[4]=0,t[5]=0,t[6]=0,t[7]=0,t},n.fromMat4=function(t,n){var r=e.create();u.getRotation(r,n);var o=new a.ARRAY_TYPE(3);return u.getTranslation(o,n),i(t,r,o),t},n.copy=s,n.identity=function(t){return t[0]=0,t[1]=0,t[2]=0,t[3]=1,t[4]=0,t[5]=0,t[6]=0,t[7]=0,t},n.set=function(t,n,r,a,e,u,o,i,s){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t[4]=u,t[5]=o,t[6]=i,t[7]=s,t},n.getDual=function(t,n){return t[0]=n[4],t[1]=n[5],t[2]=n[6],t[3]=n[7],t},n.setDual=function(t,n){return t[4]=n[0],t[5]=n[1],t[6]=n[2],t[7]=n[3],t},n.getTranslation=function(t,n){var r=n[4],a=n[5],e=n[6],u=n[7],o=-n[0],i=-n[1],s=-n[2],c=n[3];return t[0]=2*(r*c+u*o+a*s-e*i),t[1]=2*(a*c+u*i+e*o-r*s),t[2]=2*(e*c+u*s+r*i-a*o),t},n.translate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=.5*r[0],s=.5*r[1],c=.5*r[2],f=n[4],M=n[5],h=n[6],l=n[7];return t[0]=a,t[1]=e,t[2]=u,t[3]=o,t[4]=o*i+e*c-u*s+f,t[5]=o*s+u*i-a*c+M,t[6]=o*c+a*s-e*i+h,t[7]=-a*i-e*s-u*c+l,t},n.rotateX=function(t,n,r){var a=-n[0],u=-n[1],o=-n[2],i=n[3],s=n[4],c=n[5],f=n[6],M=n[7],h=s*i+M*a+c*o-f*u,l=c*i+M*u+f*a-s*o,v=f*i+M*o+s*u-c*a,d=M*i-s*a-c*u-f*o;return e.rotateX(t,n,r),a=t[0],u=t[1],o=t[2],i=t[3],t[4]=h*i+d*a+l*o-v*u,t[5]=l*i+d*u+v*a-h*o,t[6]=v*i+d*o+h*u-l*a,t[7]=d*i-h*a-l*u-v*o,t},n.rotateY=function(t,n,r){var a=-n[0],u=-n[1],o=-n[2],i=n[3],s=n[4],c=n[5],f=n[6],M=n[7],h=s*i+M*a+c*o-f*u,l=c*i+M*u+f*a-s*o,v=f*i+M*o+s*u-c*a,d=M*i-s*a-c*u-f*o;return e.rotateY(t,n,r),a=t[0],u=t[1],o=t[2],i=t[3],t[4]=h*i+d*a+l*o-v*u,t[5]=l*i+d*u+v*a-h*o,t[6]=v*i+d*o+h*u-l*a,t[7]=d*i-h*a-l*u-v*o,t},n.rotateZ=function(t,n,r){var a=-n[0],u=-n[1],o=-n[2],i=n[3],s=n[4],c=n[5],f=n[6],M=n[7],h=s*i+M*a+c*o-f*u,l=c*i+M*u+f*a-s*o,v=f*i+M*o+s*u-c*a,d=M*i-s*a-c*u-f*o;return e.rotateZ(t,n,r),a=t[0],u=t[1],o=t[2],i=t[3],t[4]=h*i+d*a+l*o-v*u,t[5]=l*i+d*u+v*a-h*o,t[6]=v*i+d*o+h*u-l*a,t[7]=d*i-h*a-l*u-v*o,t},n.rotateByQuatAppend=function(t,n,r){var a=r[0],e=r[1],u=r[2],o=r[3],i=n[0],s=n[1],c=n[2],f=n[3];return t[0]=i*o+f*a+s*u-c*e,t[1]=s*o+f*e+c*a-i*u,t[2]=c*o+f*u+i*e-s*a,t[3]=f*o-i*a-s*e-c*u,i=n[4],s=n[5],c=n[6],f=n[7],t[4]=i*o+f*a+s*u-c*e,t[5]=s*o+f*e+c*a-i*u,t[6]=c*o+f*u+i*e-s*a,t[7]=f*o-i*a-s*e-c*u,t},n.rotateByQuatPrepend=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=r[0],s=r[1],c=r[2],f=r[3];return t[0]=a*f+o*i+e*c-u*s,t[1]=e*f+o*s+u*i-a*c,t[2]=u*f+o*c+a*s-e*i,t[3]=o*f-a*i-e*s-u*c,i=r[4],s=r[5],c=r[6],f=r[7],t[4]=a*f+o*i+e*c-u*s,t[5]=e*f+o*s+u*i-a*c,t[6]=u*f+o*c+a*s-e*i,t[7]=o*f-a*i-e*s-u*c,t},n.rotateAroundAxis=function(t,n,r,e){if(Math.abs(e)<a.EPSILON)return s(t,n);var u=Math.sqrt(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]);e*=.5;var o=Math.sin(e),i=o*r[0]/u,c=o*r[1]/u,f=o*r[2]/u,M=Math.cos(e),h=n[0],l=n[1],v=n[2],d=n[3];t[0]=h*M+d*i+l*f-v*c,t[1]=l*M+d*c+v*i-h*f,t[2]=v*M+d*f+h*c-l*i,t[3]=d*M-h*i-l*c-v*f;var b=n[4],m=n[5],p=n[6],P=n[7];return t[4]=b*M+P*i+m*f-p*c,t[5]=m*M+P*c+p*i-b*f,t[6]=p*M+P*f+b*c-m*i,t[7]=P*M-b*i-m*c-p*f,t},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t[4]=n[4]+r[4],t[5]=n[5]+r[5],t[6]=n[6]+r[6],t[7]=n[7]+r[7],t},n.multiply=c,n.scale=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t[4]=n[4]*r,t[5]=n[5]*r,t[6]=n[6]*r,t[7]=n[7]*r,t},n.lerp=function(t,n,r,a){var e=1-a;f(n,r)<0&&(a=-a);return t[0]=n[0]*e+r[0]*a,t[1]=n[1]*e+r[1]*a,t[2]=n[2]*e+r[2]*a,t[3]=n[3]*e+r[3]*a,t[4]=n[4]*e+r[4]*a,t[5]=n[5]*e+r[5]*a,t[6]=n[6]*e+r[6]*a,t[7]=n[7]*e+r[7]*a,t},n.invert=function(t,n){var r=h(n);return t[0]=-n[0]/r,t[1]=-n[1]/r,t[2]=-n[2]/r,t[3]=n[3]/r,t[4]=-n[4]/r,t[5]=-n[5]/r,t[6]=-n[6]/r,t[7]=n[7]/r,t},n.conjugate=function(t,n){return t[0]=-n[0],t[1]=-n[1],t[2]=-n[2],t[3]=n[3],t[4]=-n[4],t[5]=-n[5],t[6]=-n[6],t[7]=n[7],t},n.normalize=function(t,n){var r=h(n);if(r>0){r=Math.sqrt(r);var a=n[0]/r,e=n[1]/r,u=n[2]/r,o=n[3]/r,i=n[4],s=n[5],c=n[6],f=n[7],M=a*i+e*s+u*c+o*f;t[0]=a,t[1]=e,t[2]=u,t[3]=o,t[4]=(i-a*M)/r,t[5]=(s-e*M)/r,t[6]=(c-u*M)/r,t[7]=(f-o*M)/r}return t},n.str=function(t){return"quat2("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+", "+t[4]+", "+t[5]+", "+t[6]+", "+t[7]+")"},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]&&t[4]===n[4]&&t[5]===n[5]&&t[6]===n[6]&&t[7]===n[7]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=t[4],s=t[5],c=t[6],f=t[7],M=n[0],h=n[1],l=n[2],v=n[3],d=n[4],b=n[5],m=n[6],p=n[7];return Math.abs(r-M)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(M))&&Math.abs(e-h)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(h))&&Math.abs(u-l)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(l))&&Math.abs(o-v)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(v))&&Math.abs(i-d)<=a.EPSILON*Math.max(1,Math.abs(i),Math.abs(d))&&Math.abs(s-b)<=a.EPSILON*Math.max(1,Math.abs(s),Math.abs(b))&&Math.abs(c-m)<=a.EPSILON*Math.max(1,Math.abs(c),Math.abs(m))&&Math.abs(f-p)<=a.EPSILON*Math.max(1,Math.abs(f),Math.abs(p))};var a=o(r(0)),e=o(r(3)),u=o(r(4));function o(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}function i(t,n,r){var a=.5*r[0],e=.5*r[1],u=.5*r[2],o=n[0],i=n[1],s=n[2],c=n[3];return t[0]=o,t[1]=i,t[2]=s,t[3]=c,t[4]=a*c+e*s-u*i,t[5]=e*c+u*o-a*s,t[6]=u*c+a*i-e*o,t[7]=-a*o-e*i-u*s,t}function s(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[4]=n[4],t[5]=n[5],t[6]=n[6],t[7]=n[7],t}n.getReal=e.copy;n.setReal=e.copy;function c(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=r[4],s=r[5],c=r[6],f=r[7],M=n[4],h=n[5],l=n[6],v=n[7],d=r[0],b=r[1],m=r[2],p=r[3];return t[0]=a*p+o*d+e*m-u*b,t[1]=e*p+o*b+u*d-a*m,t[2]=u*p+o*m+a*b-e*d,t[3]=o*p-a*d-e*b-u*m,t[4]=a*f+o*i+e*c-u*s+M*p+v*d+h*m-l*b,t[5]=e*f+o*s+u*i-a*c+h*p+v*b+l*d-M*m,t[6]=u*f+o*c+a*s-e*i+l*p+v*m+M*b-h*d,t[7]=o*f-a*i-e*s-u*c+v*p-M*d-h*b-l*m,t}n.mul=c;var f=n.dot=e.dot;var M=n.length=e.length,h=(n.len=M,n.squaredLength=e.squaredLength);n.sqrLen=h},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.sub=n.mul=void 0,n.create=function(){var t=new a.ARRAY_TYPE(6);a.ARRAY_TYPE!=Float32Array&&(t[1]=0,t[2]=0,t[4]=0,t[5]=0);return t[0]=1,t[3]=1,t},n.clone=function(t){var n=new a.ARRAY_TYPE(6);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n[4]=t[4],n[5]=t[5],n},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t[4]=n[4],t[5]=n[5],t},n.identity=function(t){return t[0]=1,t[1]=0,t[2]=0,t[3]=1,t[4]=0,t[5]=0,t},n.fromValues=function(t,n,r,e,u,o){var i=new a.ARRAY_TYPE(6);return i[0]=t,i[1]=n,i[2]=r,i[3]=e,i[4]=u,i[5]=o,i},n.set=function(t,n,r,a,e,u,o){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t[4]=u,t[5]=o,t},n.invert=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=n[4],i=n[5],s=r*u-a*e;if(!s)return null;return s=1/s,t[0]=u*s,t[1]=-a*s,t[2]=-e*s,t[3]=r*s,t[4]=(e*i-u*o)*s,t[5]=(a*o-r*i)*s,t},n.determinant=function(t){return t[0]*t[3]-t[1]*t[2]},n.multiply=e,n.rotate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=Math.sin(r),f=Math.cos(r);return t[0]=a*f+u*c,t[1]=e*f+o*c,t[2]=a*-c+u*f,t[3]=e*-c+o*f,t[4]=i,t[5]=s,t},n.scale=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=r[0],f=r[1];return t[0]=a*c,t[1]=e*c,t[2]=u*f,t[3]=o*f,t[4]=i,t[5]=s,t},n.translate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=r[0],f=r[1];return t[0]=a,t[1]=e,t[2]=u,t[3]=o,t[4]=a*c+u*f+i,t[5]=e*c+o*f+s,t},n.fromRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=a,t[1]=r,t[2]=-r,t[3]=a,t[4]=0,t[5]=0,t},n.fromScaling=function(t,n){return t[0]=n[0],t[1]=0,t[2]=0,t[3]=n[1],t[4]=0,t[5]=0,t},n.fromTranslation=function(t,n){return t[0]=1,t[1]=0,t[2]=0,t[3]=1,t[4]=n[0],t[5]=n[1],t},n.str=function(t){return"mat2d("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+", "+t[4]+", "+t[5]+")"},n.frob=function(t){return Math.sqrt(Math.pow(t[0],2)+Math.pow(t[1],2)+Math.pow(t[2],2)+Math.pow(t[3],2)+Math.pow(t[4],2)+Math.pow(t[5],2)+1)},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t[4]=n[4]+r[4],t[5]=n[5]+r[5],t},n.subtract=u,n.multiplyScalar=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t[4]=n[4]*r,t[5]=n[5]*r,t},n.multiplyScalarAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t[3]=n[3]+r[3]*a,t[4]=n[4]+r[4]*a,t[5]=n[5]+r[5]*a,t},n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]&&t[4]===n[4]&&t[5]===n[5]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=t[4],s=t[5],c=n[0],f=n[1],M=n[2],h=n[3],l=n[4],v=n[5];return Math.abs(r-c)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(c))&&Math.abs(e-f)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(f))&&Math.abs(u-M)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(M))&&Math.abs(o-h)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(h))&&Math.abs(i-l)<=a.EPSILON*Math.max(1,Math.abs(i),Math.abs(l))&&Math.abs(s-v)<=a.EPSILON*Math.max(1,Math.abs(s),Math.abs(v))};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=n[4],s=n[5],c=r[0],f=r[1],M=r[2],h=r[3],l=r[4],v=r[5];return t[0]=a*c+u*f,t[1]=e*c+o*f,t[2]=a*M+u*h,t[3]=e*M+o*h,t[4]=a*l+u*v+i,t[5]=e*l+o*v+s,t}function u(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t[3]=n[3]-r[3],t[4]=n[4]-r[4],t[5]=n[5]-r[5],t}n.mul=e,n.sub=u},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.sub=n.mul=void 0,n.create=function(){var t=new a.ARRAY_TYPE(4);a.ARRAY_TYPE!=Float32Array&&(t[1]=0,t[2]=0);return t[0]=1,t[3]=1,t},n.clone=function(t){var n=new a.ARRAY_TYPE(4);return n[0]=t[0],n[1]=t[1],n[2]=t[2],n[3]=t[3],n},n.copy=function(t,n){return t[0]=n[0],t[1]=n[1],t[2]=n[2],t[3]=n[3],t},n.identity=function(t){return t[0]=1,t[1]=0,t[2]=0,t[3]=1,t},n.fromValues=function(t,n,r,e){var u=new a.ARRAY_TYPE(4);return u[0]=t,u[1]=n,u[2]=r,u[3]=e,u},n.set=function(t,n,r,a,e){return t[0]=n,t[1]=r,t[2]=a,t[3]=e,t},n.transpose=function(t,n){if(t===n){var r=n[1];t[1]=n[2],t[2]=r}else t[0]=n[0],t[1]=n[2],t[2]=n[1],t[3]=n[3];return t},n.invert=function(t,n){var r=n[0],a=n[1],e=n[2],u=n[3],o=r*u-e*a;if(!o)return null;return o=1/o,t[0]=u*o,t[1]=-a*o,t[2]=-e*o,t[3]=r*o,t},n.adjoint=function(t,n){var r=n[0];return t[0]=n[3],t[1]=-n[1],t[2]=-n[2],t[3]=r,t},n.determinant=function(t){return t[0]*t[3]-t[2]*t[1]},n.multiply=e,n.rotate=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=Math.sin(r),s=Math.cos(r);return t[0]=a*s+u*i,t[1]=e*s+o*i,t[2]=a*-i+u*s,t[3]=e*-i+o*s,t},n.scale=function(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=r[0],s=r[1];return t[0]=a*i,t[1]=e*i,t[2]=u*s,t[3]=o*s,t},n.fromRotation=function(t,n){var r=Math.sin(n),a=Math.cos(n);return t[0]=a,t[1]=r,t[2]=-r,t[3]=a,t},n.fromScaling=function(t,n){return t[0]=n[0],t[1]=0,t[2]=0,t[3]=n[1],t},n.str=function(t){return"mat2("+t[0]+", "+t[1]+", "+t[2]+", "+t[3]+")"},n.frob=function(t){return Math.sqrt(Math.pow(t[0],2)+Math.pow(t[1],2)+Math.pow(t[2],2)+Math.pow(t[3],2))},n.LDU=function(t,n,r,a){return t[2]=a[2]/a[0],r[0]=a[0],r[1]=a[1],r[3]=a[3]-t[2]*r[1],[t,n,r]},n.add=function(t,n,r){return t[0]=n[0]+r[0],t[1]=n[1]+r[1],t[2]=n[2]+r[2],t[3]=n[3]+r[3],t},n.subtract=u,n.exactEquals=function(t,n){return t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3]},n.equals=function(t,n){var r=t[0],e=t[1],u=t[2],o=t[3],i=n[0],s=n[1],c=n[2],f=n[3];return Math.abs(r-i)<=a.EPSILON*Math.max(1,Math.abs(r),Math.abs(i))&&Math.abs(e-s)<=a.EPSILON*Math.max(1,Math.abs(e),Math.abs(s))&&Math.abs(u-c)<=a.EPSILON*Math.max(1,Math.abs(u),Math.abs(c))&&Math.abs(o-f)<=a.EPSILON*Math.max(1,Math.abs(o),Math.abs(f))},n.multiplyScalar=function(t,n,r){return t[0]=n[0]*r,t[1]=n[1]*r,t[2]=n[2]*r,t[3]=n[3]*r,t},n.multiplyScalarAndAdd=function(t,n,r,a){return t[0]=n[0]+r[0]*a,t[1]=n[1]+r[1]*a,t[2]=n[2]+r[2]*a,t[3]=n[3]+r[3]*a,t};var a=function(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}(r(0));function e(t,n,r){var a=n[0],e=n[1],u=n[2],o=n[3],i=r[0],s=r[1],c=r[2],f=r[3];return t[0]=a*i+u*s,t[1]=e*i+o*s,t[2]=a*c+u*f,t[3]=e*c+o*f,t}function u(t,n,r){return t[0]=n[0]-r[0],t[1]=n[1]-r[1],t[2]=n[2]-r[2],t[3]=n[3]-r[3],t}n.mul=e,n.sub=u},function(t,n,r){"use strict";Object.defineProperty(n,"__esModule",{value:!0}),n.vec4=n.vec3=n.vec2=n.quat2=n.quat=n.mat4=n.mat3=n.mat2d=n.mat2=n.glMatrix=void 0;var a=l(r(0)),e=l(r(9)),u=l(r(8)),o=l(r(5)),i=l(r(4)),s=l(r(3)),c=l(r(7)),f=l(r(6)),M=l(r(2)),h=l(r(1));function l(t){if(t&&t.__esModule)return t;var n={};if(null!=t)for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(n[r]=t[r]);return n.default=t,n}n.glMatrix=a,n.mat2=e,n.mat2d=u,n.mat3=o,n.mat4=i,n.quat=s,n.quat2=c,n.vec2=f,n.vec3=M,n.vec4=h}])});
+
+/***/ }),
+/* 4 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	(function (global, factory) {
@@ -50566,7 +53309,7 @@
 
 
 /***/ }),
-/* 3 */
+/* 5 */
 /***/ (function(module, exports) {
 
 	module.exports = function(THREE) {
@@ -51689,6 +54432,2134 @@
 		return OrbitControls;
 	}
 
+
+/***/ }),
+/* 6 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	var THREE = __webpack_require__(4);
+	
+	function Painters(gl) {
+	  var _require = __webpack_require__(7)(gl),
+	      getShader = _require.getShader,
+	      addShadersToProgram = _require.addShadersToProgram;
+	
+	  var ParticlePainter;
+	  var GridPainter;
+	  (function () {
+	    var prog = gl.createProgram();
+	
+	    var vs = getShader(__webpack_require__(8), gl.VERTEX_SHADER);
+	    var fs = getShader(__webpack_require__(9), gl.FRAGMENT_SHADER);
+	    addShadersToProgram(prog, [vs, fs]); // добавление v f шейдеров частицы
+	
+	    var v_id = gl.getAttribLocation(prog, "v_id");
+	    var u_particles = gl.getUniformLocation(prog, "u_particles");
+	    var u_texLength = gl.getUniformLocation(prog, "u_texLength"); // связь с переменными вершинного шейдера
+	    var u_viewProj = gl.getUniformLocation(prog, "u_viewProj");
+	    var u_color = gl.getUniformLocation(prog, "part_color");
+	    var u_size = gl.getUniformLocation(prog, "size");
+	    console.log(u_color, u_texLength);
+	    ParticlePainter = function ParticlePainter(_particles) {
+	      var particles = _particles;
+	      var readBuffer;
+	      var painter = {
+	        drawParticles: true,
+	        drawParticleValues: false,
+	        setBuffer: function setBuffer(_particles) {
+	          particles = _particles;
+	          readBuffer = new Float32Array(4 * particles.textureLength * particles.textureLength);
+	        }
+	      };
+	
+	      function draw(state) {
+	        var els = document.getElementsByClassName('particle-label');
+	        while (els[0]) {
+	          els[0].parentNode.removeChild(els[0]);
+	        }
+	
+	        if (!painter.drawParticles) return;
+	        gl.useProgram(prog);
+	
+	        gl.activeTexture(gl.TEXTURE0);
+	        gl.bindTexture(gl.TEXTURE_2D, particles.A.tex);
+	        gl.uniform1i(u_particles, 0);
+	        gl.uniform1i(u_texLength, particles.textureLength);
+	        gl.uniform3fv(u_color, state.color);
+	        gl.uniformMatrix4fv(u_viewProj, false, state.cameraMat.elements);
+	        gl.bindBuffer(gl.ARRAY_BUFFER, particles.ids);
+	        gl.enableVertexAttribArray(v_id);
+	        gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	        gl.drawArrays(gl.POINTS, 0, particles.length);
+	        gl.disableVertexAttribArray(v_id);
+	      }
+	
+	      painter.draw = draw;
+	
+	      return painter;
+	    };
+	  })();
+	  (function () {
+	    var progcube = gl.createProgram();
+	    var vs = getShader(__webpack_require__(10), gl.VERTEX_SHADER);
+	    var fs = getShader(__webpack_require__(11), gl.FRAGMENT_SHADER);
+	    addShadersToProgram(progcube, [vs, fs]);
+	
+	    var u_grid2 = gl.getUniformLocation(progcube, "u_grid");
+	    var u_min2 = gl.getUniformLocation(progcube, "u_min");
+	    var u_count2 = gl.getUniformLocation(progcube, "u_count");
+	    var u_cellSize2 = gl.getUniformLocation(progcube, "u_cellSize");
+	    var u_texLength2 = gl.getUniformLocation(progcube, "u_texLength");
+	    var u_viewProj2 = gl.getUniformLocation(progcube, "u_viewProj");
+	    var u_mode = gl.getUniformLocation(progcube, "u_mode");
+	    var u_c = gl.getUniformLocation(progcube, "u_c");
+	
+	    var v_id = gl.getAttribLocation(progcube, "v_id");
+	
+	    var progline = gl.createProgram();
+	
+	    vs = getShader(__webpack_require__(12), gl.VERTEX_SHADER);
+	    fs = getShader(__webpack_require__(13), gl.FRAGMENT_SHADER);
+	    addShadersToProgram(progline, [vs, fs]);
+	    var v_id = gl.getAttribLocation(progline, "v_id");
+	
+	    GridPainter = function GridPainter(_grid) {
+	      var grid = _grid;
+	      var buf2 = gl.createBuffer();
+	      var buf1 = gl.createBuffer();
+	
+	      function setup(grid) {
+	        gl.bindBuffer(gl.ARRAY_BUFFER, buf2);
+	        var data = new Float32Array(2 * grid.count[0] * grid.count[1] * grid.count[2]);
+	        for (var i = 0; i < data.length; ++i) {
+	          data[i] = i;
+	        }
+	        buf2.length = data.length;
+	        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	        gl.bindBuffer(gl.ARRAY_BUFFER, buf1);
+	        data = new Float32Array(1 * grid.count[0] * grid.count[1] * grid.count[2]);
+	        for (var _i = 0; _i < data.length; ++_i) {
+	          data[_i] = _i;
+	        }
+	        buf1.length = data.length;
+	        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	      }
+	
+	      if (grid) setup(grid);
+	
+	      function drawTypes() {
+	        gl.bindBuffer(gl.ARRAY_BUFFER, buf1);
+	        gl.enableVertexAttribArray(v_id);
+	        gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	
+	        gl.drawArrays(gl.POINTS, 0, buf1.length);
+	
+	        gl.disableVertexAttribArray(v_id);
+	      }
+	
+	      var painter = {
+	        drawTypes: true,
+	        drawMIC: true,
+	        setBuffer: function setBuffer(_grid) {
+	          grid = _grid;
+	          setup(grid);
+	        }
+	      };
+	
+	      function draw(state) {
+	        var els = document.getElementsByClassName('grid-label');
+	        while (els[0]) {
+	          els[0].parentNode.removeChild(els[0]);
+	        }
+	
+	        if (painter.drawTypes || painter.drawMIC) {
+	          gl.enable(gl.BLEND);
+	          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+	          gl.useProgram(progcube);
+	          gl.uniform1i(u_grid2, 0);
+	          gl.uniform1i(u_texLength2, grid.textureLength);
+	          gl.uniform3fv(u_min2, grid.min);
+	          gl.uniform3i(u_count2, grid.count[0], grid.count[1], grid.count[2]);
+	          gl.uniform1f(u_cellSize2, grid.cellSize);
+	          gl.uniformMatrix4fv(u_viewProj2, false, state.cameraMat.elements);
+	
+	          gl.activeTexture(gl.TEXTURE0);
+	          if (painter.drawTypes) {
+	            gl.uniform1i(u_mode, 0);
+	            gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	            drawTypes();
+	          }
+	          if (painter.drawMIC) {
+	            gl.uniform1i(u_mode, 1);
+	            gl.bindTexture(gl.TEXTURE_2D, grid.MIC1.tex);
+	
+	            drawTypes();
+	          }
+	        }
+	      }
+	
+	      painter.draw = draw;
+	
+	      return painter;
+	    };
+	  })();
+	  return {
+	    ParticlePainter: ParticlePainter,
+	    GridPainter: GridPainter
+	  };
+	}
+	
+	exports.default = Painters;
+
+/***/ }),
+/* 7 */
+/***/ (function(module, exports) {
+
+	'use strict';
+	
+	module.exports = function (gl) {
+	  function getShader(source, type) {
+	    var shader = gl.createShader(type); // создание шейдера
+	    gl.shaderSource(shader, source); // устанавливаем шейдеру его программный код
+	    gl.compileShader(shader); // компилируем шейдер
+	
+	    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+	      console.error("Ошибка связанная с шейдером", source);
+	    }
+	    return shader;
+	  }
+	  // https://webglfundamentals.org/webgl/lessons/ru/webgl-render-to-texture.html
+	  function setupFramebufferTexture(tex, fbo, width, height, buffer) {
+	    gl.bindTexture(gl.TEXTURE_2D, tex);
+	    if (gl.webgl2) {
+	      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, height, 0, gl.RGBA, gl.FLOAT, buffer);
+	    } else {
+	      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, buffer);
+	    }
+	    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	    gl.bindTexture(gl.TEXTURE_2D, null);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+	    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	  }
+	
+	  function addShadersToProgram(program, shaders) {
+	    for (var i = 0; i < shaders.length; ++i) {
+	      gl.attachShader(program, shaders[i]); // линкуем шейдер
+	    }
+	
+	    gl.linkProgram(program);
+	
+	    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+	      console.error("Ошибка связи шейдера");
+	    }
+	  }
+	  return {
+	    getShader: getShader,
+	    addShadersToProgram: addShadersToProgram,
+	    setupFramebufferTexture: setupFramebufferTexture
+	  };
+	};
+
+/***/ }),
+/* 8 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nuniform mat4 u_viewProj;\n\nattribute float v_id;\nuniform sampler2D u_particles;\nuniform int u_texLength;\nuniform vec3 part_color;\nvarying vec3 f_col;\nvarying float size;\nvoid main() {\n    int pIdx = int(v_id) * 2;\n    int vIdx = int(v_id) * 2 + 1;\n\n    int pV = pIdx / u_texLength;\n    int pU = pIdx - pV * u_texLength;\n\n    int vV = vIdx / u_texLength;\n    int vU = vIdx - vV * u_texLength;\n\n    vec2 pUV = (vec2(pU, pV) + 0.01) / float(u_texLength);\n    vec2 vUV = (vec2(vU, vV) + 0.01) / float(u_texLength);\n\n    vec3 v_pos = texture2D(u_particles, pUV).rgb;\n    vec3 v_vel = texture2D(u_particles, vUV).rgb;\n\n    f_col = clamp(mix(part_color,part_color + 0.2, texture2D(u_particles, pUV).a) + vec3(length(v_vel) / 4.0), vec3(0,0,0), vec3(1,1,1));\n    gl_Position = u_viewProj * vec4(v_pos, 1.0);\n    gl_PointSize = 5.0;\n}"
+
+/***/ }),
+/* 9 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec3 f_col;\n\nvoid main() {\n  gl_FragColor = vec4(f_col, 1.0);\n}"
+
+/***/ }),
+/* 10 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nuniform sampler2D u_grid;\nuniform ivec3 u_count;\nuniform vec3 u_min;\nuniform float u_cellSize;\nuniform mat4 u_viewProj;\nuniform int u_texLength;\nuniform int u_mode;\nuniform int u_c;\n\nattribute float v_id;\n\nvarying vec4 f_col;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n\n  ivec3 idx = toXYZ(int(v_id), u_count);\n\n  vec3 pos = positionOf(idx, u_min, u_cellSize) + vec3(0.1373, 0.1373, 0.1608) * u_cellSize;\n\n  vec4 val = gridAt(u_grid, idx, u_count, u_texLength);\n\n  if (u_mode == 0) {\n    float v2 = val.r - 4.0 * floor(val.r / 4.0);\n    float v1 = v2 - 2.0 * floor(v2 / 2.0);\n\n    f_col = vec4(\n    max(float(v1 >= 1.0), 0.1),\n    max(float(v2 >= 2.0), 0.1),\n    max(float(val.r >= 4.0), 0.1),\n    0.2);\n  } else if (u_mode == 1) {\n    f_col = vec4(10.0*vec3(abs(val)), 0.2);\n  } else if (u_mode == 2) {\n    for (int i = 0; i < 3; ++i) {\n      if (i == u_c) {\n        f_col = vec4(10.0*vec3(abs(val[i])), 0.2);   \n        break;\n      }\n    }\n  }\n\n  vec4 p = u_viewProj * vec4(pos, 1.0);\n  p /= p[3];\n  gl_Position = p;\n\n  gl_PointSize = 10.0;\n\n  if (!checkIdx(idx, u_count - 1)) {\n    gl_PointSize = 0.0;\n    gl_Position = vec4(100,100,0.0,1.0);\n  }\n}"
+
+/***/ }),
+/* 11 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec4 f_col;\n\nvoid main() {\n  gl_FragColor = f_col;\n}"
+
+/***/ }),
+/* 12 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nuniform sampler2D u_grid;\nuniform vec3 u_direction;\nuniform vec3 u_min;\nuniform ivec3 u_count;\nuniform float u_cellSize;\nuniform mat4 u_viewProj;\nuniform int u_texLength;\nuniform int u_g;\n\nattribute float v_id;\n\nvarying vec3 f_col;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n\n  int idx = int(v_id / 2.0);\n\n  vec3 pos;\n\n  float scale = 0.05;\n  ivec3 xyz = toXYZ(idx, u_count);\n\n  f_col = u_direction;\n\n  vec4 p = u_viewProj * vec4(pos, 1.0);\n  p /= p[3];\n  gl_Position = p;\n\n  gl_PointSize = 1.0;\n}"
+
+/***/ }),
+/* 13 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec3 f_col;\n\nvoid main() {\n  gl_FragColor = vec4(f_col, 1.0);\n}"
+
+/***/ }),
+/* 14 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+	
+	exports._ParticleBuffer = _ParticleBuffer;
+	
+	function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+	
+	function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+	
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+	
+	var ATTRIB_COUNT = 8;
+	
+	function Particle(i, buffer) {
+	  var particle = {};
+	  particle.px = buffer[ATTRIB_COUNT * i + 0];
+	  particle.py = buffer[ATTRIB_COUNT * i + 1];
+	  particle.pz = buffer[ATTRIB_COUNT * i + 2];
+	  particle.vx = buffer[ATTRIB_COUNT * i + 4];
+	  particle.vy = buffer[ATTRIB_COUNT * i + 5];
+	  particle.vz = buffer[ATTRIB_COUNT * i + 6];
+	  return particle;
+	}
+	
+	function _ParticleBuffer(gl) {
+	  var _require = __webpack_require__(7)(gl),
+	      setupFramebufferTexture = _require.setupFramebufferTexture;
+	
+	  return function ParticleBuffer() {
+	    var particles = [];
+	
+	    var particleBuffer;
+	
+	    particleBuffer = {
+	      addRegion: function addRegion(region) {
+	        region.particleIterator(function (x, y, z) {
+	          particles.push(x);
+	          particles.push(y);
+	          particles.push(z);
+	          particles.push(Math.random());
+	          particles.push(1);
+	          particles.push(0); //фильтры цвета
+	          particles.push(0);
+	          particles.push(0);
+	        });
+	      },
+	
+	      create: function create() {
+	        var minPixels = particles.length / 3;
+	        particleBuffer.textureLength = Math.pow(2, Math.ceil(Math.log2(Math.ceil(Math.sqrt(minPixels)))));
+	        var ids = new Float32Array(particleBuffer.length);
+	        particleBuffer.buffer = new Float32Array(particleBuffer.textureLength * particleBuffer.textureLength * 4);
+	        for (var i = 0; i < particles.length; ++i) {
+	          particleBuffer.buffer[i] = particles[i];
+	          ids[i] = i;
+	        }
+	
+	        particleBuffer.A = {
+	          tex: gl.createTexture(),
+	          fbo: gl.createFramebuffer()
+	        };
+	
+	        particleBuffer.B = {
+	          tex: gl.createTexture(),
+	          fbo: gl.createFramebuffer()
+	        };
+	
+	        setupFramebufferTexture(particleBuffer.A.tex, particleBuffer.A.fbo, particleBuffer.textureLength, particleBuffer.textureLength, particleBuffer.buffer);
+	        setupFramebufferTexture(particleBuffer.B.tex, particleBuffer.B.fbo, particleBuffer.textureLength, particleBuffer.textureLength, particleBuffer.buffer);
+	        particleBuffer.ids = gl.createBuffer();
+	        gl.bindBuffer(gl.ARRAY_BUFFER, particleBuffer.ids);
+	        gl.bufferData(gl.ARRAY_BUFFER, ids, gl.STATIC_DRAW);
+	        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	        console.log('Created ' + particles.length / ATTRIB_COUNT + ' particles');
+	      },
+	
+	      particle: function particle(i) {
+	        return Particle(i, particleBuffer.buffer);
+	      },
+	
+	      get length() {
+	        return particles.length / ATTRIB_COUNT;
+	      },
+	      swap: function swap() {
+	        var ex = particleBuffer.A;
+	        particleBuffer.A = particleBuffer.B;
+	        particleBuffer.B = ex;
+	      },
+	
+	      buffer: null
+	    };
+	
+	    return particleBuffer;
+	  };
+	}
+	
+	var ParticleRegion = function ParticleRegion(density) {
+	  _classCallCheck(this, ParticleRegion);
+	
+	  this.density = density;
+	};
+	
+	var BoxRegion = exports.BoxRegion = function (_ParticleRegion) {
+	  _inherits(BoxRegion, _ParticleRegion);
+	
+	  function BoxRegion(density, bound) {
+	    _classCallCheck(this, BoxRegion);
+	
+	    var _this = _possibleConstructorReturn(this, (BoxRegion.__proto__ || Object.getPrototypeOf(BoxRegion)).call(this, density));
+	
+	    _this.bound = bound;
+	    return _this;
+	  }
+	
+	  _createClass(BoxRegion, [{
+	    key: 'particleIterator',
+	    value: function particleIterator(cb) {
+	      var length = 1 / Math.cbrt(this.density);
+	      for (var x = this.bound.minX; x < this.bound.maxX; x += length) {
+	        for (var y = this.bound.minY; y < this.bound.maxY; y += length) {
+	          for (var z = this.bound.minZ; z < this.bound.maxZ; z += length) {
+	            cb(x, y, z); // расставляем по позициям Box 
+	          }
+	        }
+	      }
+	    }
+	  }]);
+	
+	  return BoxRegion;
+	}(ParticleRegion);
+
+/***/ }),
+/* 15 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+	
+	var _glMatrix = __webpack_require__(3);
+	
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+	
+	var Bound = function () {
+	  function Bound(bounds) {
+	    _classCallCheck(this, Bound);
+	
+	    this.minX = bounds.minX;
+	    this.maxX = bounds.maxX;
+	    this.minY = bounds.minY;
+	    this.maxY = bounds.maxY;
+	    this.minZ = bounds.minZ;
+	    this.maxZ = bounds.maxZ;
+	    this._size = _glMatrix.vec3.fromValues(this.maxX - this.minX, this.maxY - this.minY, this.maxZ - this.minZ);
+	  }
+	
+	  _createClass(Bound, [{
+	    key: 'size',
+	    value: function size() {
+	      _glMatrix.vec3.set(this._size, this.maxX - this.minX, this.maxY - this.minY, this.maxZ - this.minZ);
+	      return this._size;
+	    }
+	  }]);
+	
+	  return Bound;
+	}();
+	
+	exports.default = Bound;
+
+/***/ }),
+/* 16 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	
+	exports.default = function (shouldUpdate, update) {
+	  var frameUpdate;
+	  var isRunning = false;
+	  function _tick() {
+	    update();
+	    if (shouldUpdate()) {
+	      isRunning = true;
+	      frameUpdate = requestAnimationFrame(_tick);
+	    } else {
+	      isRunning = false;
+	    }
+	  }
+	  function start() {
+	    if (!isRunning) {
+	      _tick();
+	    }
+	  }
+	
+	  function stop() {
+	    isRunning = false;
+	  }
+	
+	  return {
+	    tick: function tick() {
+	      if (!running) {
+	        frameUpdate = requestAnimationFrame(_tick);
+	      }
+	    },
+	    start: start,
+	    stop: stop
+	  };
+	};
+	
+	var _statsJs = __webpack_require__(17);
+	
+	var _statsJs2 = _interopRequireDefault(_statsJs);
+
+	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+/***/ }),
+/* 17 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	!function(e,t){ true?module.exports=t():"function"==typeof define&&define.amd?define(t):e.Stats=t()}(this,function(){"use strict";var c=function(){var n=0,l=document.createElement("div");function e(e){return l.appendChild(e.dom),e}function t(e){for(var t=0;t<l.children.length;t++)l.children[t].style.display=t===e?"block":"none";n=e}l.style.cssText="position:fixed;top:0;left:0;cursor:pointer;opacity:0.9;z-index:10000",l.addEventListener("click",function(e){e.preventDefault(),t(++n%l.children.length)},!1);var i=(performance||Date).now(),a=i,o=0,f=e(new c.Panel("FPS","#0ff","#002")),r=e(new c.Panel("MS","#0f0","#020"));if(self.performance&&self.performance.memory)var d=e(new c.Panel("MB","#f08","#201"));return t(0),{REVISION:16,dom:l,addPanel:e,showPanel:t,begin:function(){i=(performance||Date).now()},end:function(){o++;var e=(performance||Date).now();if(r.update(e-i,200),a+1e3<=e&&(f.update(1e3*o/(e-a),100),a=e,o=0,d)){var t=performance.memory;d.update(t.usedJSHeapSize/1048576,t.jsHeapSizeLimit/1048576)}return e},update:function(){i=this.end()},domElement:l,setMode:t}};return c.Panel=function(n,l,i){var a=1/0,o=0,f=Math.round,r=f(window.devicePixelRatio||1),d=80*r,e=48*r,c=3*r,p=2*r,u=3*r,s=15*r,m=74*r,h=30*r,y=document.createElement("canvas");y.width=d,y.height=e,y.style.cssText="width:80px;height:48px";var v=y.getContext("2d");return v.font="bold "+9*r+"px Helvetica,Arial,sans-serif",v.textBaseline="top",v.fillStyle=i,v.fillRect(0,0,d,e),v.fillStyle=l,v.fillText(n,c,p),v.fillRect(u,s,m,h),v.fillStyle=i,v.globalAlpha=.9,v.fillRect(u,s,m,h),{dom:y,update:function(e,t){a=Math.min(a,e),o=Math.max(o,e),v.fillStyle=i,v.globalAlpha=1,v.fillRect(0,0,d,s),v.fillStyle=l,v.fillText(f(e)+" "+n+" ("+f(a)+"-"+f(o)+")",c,p),v.drawImage(y,u+r,s,m-r,h,u,s,m-r,h),v.fillRect(u+m-r,s,r,h),v.fillStyle=i,v.globalAlpha=.9,v.fillRect(u+m-r,s,r,f((1-e/t)*h))}}},c});
+
+
+/***/ }),
+/* 18 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+	
+	exports.default = function (gl) {
+	  var _require = __webpack_require__(7)(gl),
+	      setupFramebufferTexture = _require.setupFramebufferTexture;
+	  ///http://plaza.ufl.edu/ebrackear/ 
+	
+	  var macGrid = function () {
+	    function macGrid(bound, cellSize) {
+	      _classCallCheck(this, macGrid);
+	
+	      // this.bound = bound
+	      this.min = _glMatrix.vec3.fromValues(bound.minX, bound.minY, bound.minZ);
+	      this.max = _glMatrix.vec3.fromValues(bound.maxX, bound.maxY, bound.maxZ);
+	      _glMatrix.vec3.set(this.max, this.min[0] + cellSize * Math.ceil((this.max[0] - this.min[0]) / cellSize), this.min[1] + cellSize * Math.ceil((this.max[1] - this.min[1]) / cellSize), this.min[2] + cellSize * Math.ceil((this.max[2] - this.min[2]) / cellSize));
+	      this.cellSize = cellSize;
+	
+	      this.count = _glMatrix.vec3.create();
+	      _glMatrix.vec3.scale(this.count, bound._size, 1.0 / this.cellSize);
+	      _glMatrix.vec3.add(this.count, this.count, _glMatrix.vec3.fromValues(1, 1, 1));
+	      _glMatrix.vec3.floor(this.count, this.count);
+	      var minPixels = this.count[0] * this.count[1] * this.count[2];
+	      this.textureLength = Math.pow(2, Math.ceil(Math.log2(Math.ceil(Math.sqrt(minPixels)))));
+	
+	      this.A = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.B = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.old = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.T = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.P = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.div = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	      this.PCG1 = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.PCG2 = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	      this.MIC1 = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	
+	      this.MIC2 = {
+	        tex: gl.createTexture(),
+	        fbo: gl.createFramebuffer()
+	      };
+	      this.Type = {
+	        tex: this.B.tex,
+	        fbo: this.B.fbo
+	      };
+	
+	      setupFramebufferTexture(this.A.tex, this.A.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.B.tex, this.B.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.old.tex, this.old.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.T.tex, this.T.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.P.tex, this.P.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.div.tex, this.div.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.MIC1.tex, this.MIC1.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.MIC2.tex, this.MIC2.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.PCG1.tex, this.PCG1.fbo, this.textureLength, this.textureLength, null);
+	      setupFramebufferTexture(this.PCG2.tex, this.PCG2.fbo, this.textureLength, this.textureLength, null);
+	
+	      console.log(this);
+	    }
+	
+	    _createClass(macGrid, [{
+	      key: 'swap',
+	      value: function swap() {
+	        var ex = this.A;
+	        this.A = this.B;
+	        this.B = ex;
+	      }
+	    }]);
+	
+	    return macGrid;
+	  }();
+	
+	  return {
+	    macGrid: macGrid
+	  };
+	};
+	
+	var _glMatrix = __webpack_require__(3);
+	
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+/***/ }),
+/* 19 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	//http://www.danenglesson.com/images/portfolio/FLIP/rapport.pdf
+	
+	Object.defineProperty(exports, "__esModule", {
+	    value: true
+	});
+	
+	exports.default = function (gl) {
+	    var _require = __webpack_require__(7)(gl),
+	        getShader = _require.getShader,
+	        addShadersToProgram = _require.addShadersToProgram,
+	        setupFramebufferTexture = _require.setupFramebufferTexture;
+	
+	    var quad_vbo = function () {
+	        var buffer = gl.createBuffer();
+	        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+	        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0]), gl.STATIC_DRAW);
+	        return buffer;
+	    }();
+	
+	    function Simulation(grid, particles, solverSteps) {
+	
+	        var clearGridVelocity = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(21), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_pos = gl.getAttribLocation(prog, "v_pos");
+	
+	            return function () {
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.A.fbo);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.old.fbo);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	            };
+	        }();
+	
+	        var projectToGrid = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(22), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(23), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var u_min = gl.getUniformLocation(prog, "u_min");
+	            var u_offset = gl.getUniformLocation(prog, "u_offset");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	            var u_goffset = gl.getUniformLocation(prog, "u_goffset");
+	            var u_cellSize = gl.getUniformLocation(prog, "u_cellSize");
+	            var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	            var u_g = gl.getUniformLocation(prog, "u_g");
+	            var u_weights = gl.getUniformLocation(prog, "u_weights");
+	
+	            var v_id = gl.getAttribLocation(prog, "v_id");
+	            var u_particles = gl.getUniformLocation(prog, "u_particles");
+	            var u_particleTexLength = gl.getUniformLocation(prog, "u_particleTexLength");
+	
+	            var progAvg = gl.createProgram();
+	
+	            var vsAvg = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fsAvg = getShader(__webpack_require__(24), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(progAvg, [vsAvg, fsAvg]);
+	
+	            var v_pos = gl.getAttribLocation(progAvg, "v_pos");
+	            var gU_old = gl.getUniformLocation(progAvg, "gU_old");
+	            var u_counts = gl.getUniformLocation(progAvg, "u_counts");
+	
+	            var counts = {
+	                tex: gl.createTexture(),
+	                fbo: gl.createFramebuffer()
+	            };
+	
+	            setupFramebufferTexture(counts.tex, counts.fbo, grid.textureLength, grid.textureLength, null);
+	
+	            return function () {
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, counts.fbo);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                gl.useProgram(prog);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, particles.A.tex);
+	                gl.uniform1i(u_particles, 0);
+	
+	                gl.uniform1i(u_particleTexLength, particles.textureLength);
+	
+	                gl.uniform3fv(u_min, grid.min);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	                gl.uniform1f(u_cellSize, grid.cellSize);
+	                gl.uniform1i(u_texLength, grid.textureLength);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, particles.ids);
+	                gl.enableVertexAttribArray(v_id);
+	                gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.enable(gl.BLEND);
+	                gl.blendFunc(gl.ONE, gl.ONE);
+	                gl.uniform1i(u_weights, 0);
+	                for (var g = 0; g < 3; ++g) {
+	                    gl.uniform1i(u_g, g);
+	                    var r = 1;
+	                    for (var i = -r; i <= r; ++i) {
+	                        for (var j = -r; j <= r; ++j) {
+	                            for (var k = -r; k <= r; ++k) {
+	                                gl.uniform3i(u_goffset, i, j, k);
+	                                gl.drawArrays(gl.POINTS, 0, particles.length);
+	                            }
+	                        }
+	                    }
+	                }
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, counts.fbo);
+	                gl.uniform1i(u_weights, 1);
+	                for (var _g = 0; _g < 3; ++_g) {
+	                    gl.uniform1i(u_g, _g);
+	                    var r = 1;
+	                    for (var _i = -r; _i <= r; ++_i) {
+	                        for (var _j = -r; _j <= r; ++_j) {
+	                            for (var _k = -r; _k <= r; ++_k) {
+	                                gl.uniform3i(u_goffset, _i, _j, _k);
+	                                gl.drawArrays(gl.POINTS, 0, particles.length);
+	                            }
+	                        }
+	                    }
+	                }
+	
+	                gl.disable(gl.BLEND);
+	
+	                gl.disableVertexAttribArray(v_id);
+	
+	                grid.swap();
+	
+	                gl.useProgram(progAvg);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(gU_old, 0);
+	
+	                gl.activeTexture(gl.TEXTURE1);
+	                gl.bindTexture(gl.TEXTURE_2D, counts.tex);
+	                gl.uniform1i(u_counts, 1);
+	
+	                gl.enableVertexAttribArray(v_pos);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                gl.disableVertexAttribArray(v_pos);
+	
+	                grid.swap();
+	            };
+	        }();
+	
+	        var copyGrid = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(25), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_pos = gl.getAttribLocation(prog, "v_pos");
+	            var u_grid = gl.getUniformLocation(prog, "u_grid");
+	
+	            return function () {
+	                gl.useProgram(prog);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(u_grid, 0);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.old.fbo);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                gl.disableVertexAttribArray(v_pos);
+	            };
+	        }();
+	
+	        var gravityUpdate = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(26), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_pos = gl.getAttribLocation(prog, "v_pos");
+	            var gU_old = gl.getUniformLocation(prog, "gU_old");
+	            var u_t = gl.getUniformLocation(prog, "u_t");
+	
+	            var u_types = gl.getUniformLocation(prog, "u_types");
+	            var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	            return function (t) {
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.useProgram(prog);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(gU_old, 0);
+	                gl.uniform1f(u_t, t);
+	
+	                gl.activeTexture(gl.TEXTURE1);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                gl.uniform1i(u_types, 1);
+	
+	                gl.uniform1i(u_texLength, grid.textureLength);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                gl.disableVertexAttribArray(v_pos);
+	
+	                grid.swap();
+	            };
+	        }();
+	
+	        var markCells = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(27), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(28), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var u_min = gl.getUniformLocation(prog, "u_min");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	            var u_cellSize = gl.getUniformLocation(prog, "u_cellSize");
+	            var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	            var u_near = gl.getUniformLocation(prog, "u_near");
+	
+	            var u_particles = gl.getUniformLocation(prog, "u_particles");
+	            var u_particleTexLength = gl.getUniformLocation(prog, "u_particleTexLength");
+	
+	            var v_id = gl.getAttribLocation(prog, "v_id");
+	
+	            var prog2 = gl.createProgram();
+	
+	            var vs2 = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs2 = getShader(__webpack_require__(29), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog2, [vs2, fs2]);
+	
+	            var v_pos = gl.getAttribLocation(prog2, "v_pos");
+	            var u_texLength2 = gl.getUniformLocation(prog2, "u_texLength");
+	            var u_count2 = gl.getUniformLocation(prog2, "u_count");
+	            var u_cellSize2 = gl.getUniformLocation(prog2, "u_cellSize");
+	
+	            var pointCount = 6 * particles.length;
+	            var pointBuffer = gl.createBuffer();
+	            gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	            var data = new Float32Array(pointCount);
+	            for (var i = 0; i < pointCount; ++i) {
+	                data[i] = i;
+	            }
+	            gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	            return function () {
+	                gl.useProgram(prog);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.T.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, particles.A.tex);
+	                gl.uniform1i(u_particles, 0);
+	
+	                gl.uniform1i(u_texLength, grid.textureLength);
+	                gl.uniform1i(u_particleTexLength, particles.textureLength);
+	                gl.uniform1f(u_cellSize, grid.cellSize);
+	                gl.uniform3fv(u_min, grid.min);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                gl.enableVertexAttribArray(v_id);
+	                gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	
+	                gl.uniform1i(u_near, 1);
+	                gl.drawArrays(gl.POINTS, 0, pointCount);
+	                gl.uniform1i(u_near, 0);
+	                gl.drawArrays(gl.POINTS, 0, particles.length);
+	
+	                gl.disableVertexAttribArray(v_id);
+	
+	                gl.useProgram(prog2);
+	
+	                gl.uniform1i(u_texLength2, grid.textureLength);
+	                gl.uniform3i(u_count2, grid.count[0], grid.count[1], grid.count[2]);
+	                gl.uniform1f(u_cellSize2, grid.cellSize);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                gl.disableVertexAttribArray(v_pos);
+	            };
+	        }();
+	
+	        var enforceBoundary = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(30), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_pos = gl.getAttribLocation(prog, "v_pos");
+	            var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	            var u_min = gl.getUniformLocation(prog, "u_min");
+	            var u_max = gl.getUniformLocation(prog, "u_max");
+	            var u_cellSize = gl.getUniformLocation(prog, "u_cellSize");
+	            var u_grid = gl.getUniformLocation(prog, "u_grid");
+	            var u_types = gl.getUniformLocation(prog, "u_types");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	            return function () {
+	                gl.useProgram(prog);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(u_grid, 0);
+	
+	                gl.activeTexture(gl.TEXTURE1);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                gl.uniform1i(u_types, 1);
+	
+	                gl.uniform1i(u_texLength, grid.textureLength);
+	                gl.uniform3fv(u_min, grid.min);
+	                gl.uniform3fv(u_max, grid.max);
+	                gl.uniform1f(u_cellSize, grid.cellSize);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                gl.disableVertexAttribArray(v_pos);
+	
+	                grid.swap();
+	            };
+	        }();
+	
+	        var pressureSolve = function () {
+	
+	            var tempTex = {
+	                tex: gl.createTexture(),
+	                fbo: gl.createFramebuffer()
+	            };
+	
+	            var tempTex2 = {
+	                tex: gl.createTexture(),
+	                fbo: gl.createFramebuffer()
+	            };
+	
+	            setupFramebufferTexture(tempTex.tex, tempTex.fbo, 2, 2, null);
+	            setupFramebufferTexture(tempTex2.tex, tempTex2.fbo, 2, 2, null);
+	
+	            var q1 = {
+	                tex: gl.createTexture(),
+	                fbo: gl.createFramebuffer()
+	            };
+	
+	            var q2 = {
+	                tex: gl.createTexture(),
+	                fbo: gl.createFramebuffer()
+	            };
+	
+	            setupFramebufferTexture(q1.tex, q1.fbo, grid.textureLength, grid.textureLength, null);
+	            setupFramebufferTexture(q2.tex, q2.fbo, grid.textureLength, grid.textureLength, null);
+	
+	            var clearMatrices = function () {
+	                return function () {
+	                    gl.clearColor(0, 0, 0, 0);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.P.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.div.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.MIC1.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.MIC2.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG2.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, tempTex.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, tempTex2.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, q1.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, q2.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	                };
+	            }();
+	
+	            var buildA = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(31), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 0);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.P.fbo);
+	                    gl.clearColor(0, 0, 0, 0);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var setupb = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(32), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_A = gl.getUniformLocation(prog, "u_A");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_scale = gl.getUniformLocation(prog, "u_scale");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 0);
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                    gl.uniform1i(u_A, 1);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	                    gl.uniform1f(u_scale, 1.0 / grid.cellSize);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.clearColor(0, 0, 0, 0);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.div.fbo);
+	
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var precondition = function () {
+	                var prog = gl.createProgram();
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(33), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_A = gl.getUniformLocation(prog, "u_A");
+	                var u_Pre = gl.getUniformLocation(prog, "u_Pre");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_iter = gl.getUniformLocation(prog, "u_iter");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.P.tex);
+	                    gl.uniform1i(u_A, 0);
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 2);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.MIC1.fbo);
+	                    gl.clearColor(0, 0, 0, 0);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    var N = Math.max(Math.max(grid.count[0], grid.count[1]), grid.count[2]);
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.uniform1i(u_Pre, 1);
+	                    for (var i = 0; i < N; ++i) {
+	                        var temp = grid.MIC1;
+	                        grid.MIC1 = grid.MIC2;
+	                        grid.MIC2 = temp;
+	
+	                        gl.bindFramebuffer(gl.FRAMEBUFFER, grid.MIC1.fbo);
+	                        gl.bindTexture(gl.TEXTURE_2D, grid.MIC2.tex);
+	                        gl.uniform1i(u_iter, i);
+	                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                    }
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var IPPprecondition = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(34), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_A = gl.getUniformLocation(prog, "u_A");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	
+	                var u_setS = gl.getUniformLocation(prog, "u_setS");
+	                var u_step = gl.getUniformLocation(prog, "u_step");
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	
+	                return function (setS) {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.P.tex);
+	                    gl.uniform1i(u_A, 0);
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 1);
+	
+	                    gl.uniform1i(u_setS, setS);
+	
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    gl.uniform1i(u_pcg, 2);
+	
+	                    var temp;
+	
+	                    temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.uniform1i(u_step, 0);
+	                    gl.uniform1i(u_setS, 0);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.uniform1i(u_step, 1);
+	                    gl.uniform1i(u_setS, 1);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var preconditionZ = function () {
+	
+	                var prog = gl.createProgram();
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(35), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_A = gl.getUniformLocation(prog, "u_A");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_pre = gl.getUniformLocation(prog, "u_pre");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_q = gl.getUniformLocation(prog, "u_q");
+	                var u_setS = gl.getUniformLocation(prog, "u_setS");
+	                var u_iter = gl.getUniformLocation(prog, "u_iter");
+	                var u_step = gl.getUniformLocation(prog, "u_step");
+	
+	                return function (setS) {
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, q1.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, q2.fbo);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.P.tex);
+	                    gl.uniform1i(u_A, 0);
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.MIC1.tex);
+	                    gl.uniform1i(u_pre, 1);
+	                    gl.activeTexture(gl.TEXTURE3);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 3);
+	                    gl.uniform1i(u_setS, setS);
+	
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                    var temp;
+	
+	                    var N = Math.max(Math.max(grid.count[0], grid.count[1]), grid.count[2]);
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG1.tex);
+	                    gl.uniform1i(u_pcg, 2);
+	
+	                    gl.uniform1i(u_step, 0);
+	                    gl.activeTexture(gl.TEXTURE4);
+	                    gl.uniform1i(u_q, 4);
+	                    for (var i = 0; i < N; ++i) {
+	                        temp = q1;
+	                        q1 = q2;
+	                        q2 = temp;
+	
+	                        gl.bindFramebuffer(gl.FRAMEBUFFER, q1.fbo);
+	                        gl.bindTexture(gl.TEXTURE_2D, q2.tex);
+	                        gl.uniform1i(u_iter, i);
+	                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                    }
+	
+	                    gl.bindTexture(gl.TEXTURE_2D, q1.tex);
+	
+	                    gl.uniform1i(u_step, 1);
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    for (var i = N - 1; i >= 0; --i) {
+	                        temp = grid.PCG1;
+	                        grid.PCG1 = grid.PCG2;
+	                        grid.PCG2 = temp;
+	
+	                        gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                        gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                        gl.uniform1i(u_iter, i);
+	                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                    }
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var computeSigma = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(36), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(37), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_preconditioned = gl.getUniformLocation(prog, "u_preconditioned");
+	
+	                var v_id = gl.getAttribLocation(prog, "v_id");
+	
+	                var pointCount = grid.count[0] * grid.count[1] * grid.count[2];
+	                var pointBuffer = gl.createBuffer();
+	                gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                var data = new Float32Array(pointCount);
+	                for (var i = 0; i < pointCount; ++i) {
+	                    data[i] = i;
+	                }
+	                gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	                return function (useNew, isPreconditioned) {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG1.tex);
+	                    gl.uniform1i(u_pcg, 0);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.uniform1i(u_preconditioned, isPreconditioned);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, tempTex.fbo);
+	                    gl.enable(gl.SCISSOR_TEST);
+	                    if (useNew) {
+	                        gl.viewport(0, 1, 1, 1);
+	                        gl.scissor(0, 1, 1, 1);
+	                    } else {
+	                        gl.viewport(0, 0, 1, 1);
+	                        gl.scissor(0, 0, 1, 1);
+	                    }
+	
+	                    gl.clearColor(0, 0, 0, 0);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                    gl.enable(gl.BLEND);
+	                    gl.blendFunc(gl.ONE, gl.ONE);
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                    gl.enableVertexAttribArray(v_id);
+	                    gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	                    gl.drawArrays(gl.POINTS, 0, pointCount);
+	                    gl.disableVertexAttribArray(v_id);
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	                    gl.disable(gl.BLEND);
+	
+	                    gl.disable(gl.SCISSOR_TEST);
+	                };
+	            }();
+	
+	            var computeAs = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(38), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var u_A = gl.getUniformLocation(prog, "u_A");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_scale = gl.getUniformLocation(prog, "u_scale");
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    var temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 0);
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.uniform1i(u_pcg, 1);
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.P.tex);
+	                    gl.uniform1i(u_A, 2);
+	
+	                    gl.uniform1f(u_scale, 1 / (grid.cellSize * grid.cellSize));
+	
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var clearZ = function () {
+	                var progClear = gl.createProgram();
+	                var vsClear = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fsClear = getShader(__webpack_require__(39), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(progClear, [vsClear, fsClear]);
+	                var u_pcgClear = gl.getUniformLocation(progClear, "u_pcg");
+	                var v_posClear = gl.getAttribLocation(progClear, "v_pos");
+	
+	                return function () {
+	                    var temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.useProgram(progClear);
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.uniform1i(u_pcgClear, 0);
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	                    gl.enableVertexAttribArray(v_posClear);
+	                    gl.vertexAttribPointer(v_posClear, 2, gl.FLOAT, false, 0, 0);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                    gl.disableVertexAttribArray(v_posClear);
+	                };
+	            }();
+	
+	            var computeAlpha = function () {
+	                var prog = gl.createProgram();
+	
+	                var vs = getShader(__webpack_require__(40), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(37), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	
+	                var v_id = gl.getAttribLocation(prog, "v_id");
+	
+	                var pointCount = grid.count[0] * grid.count[1] * grid.count[2];
+	                var pointBuffer = gl.createBuffer();
+	                gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                var data = new Float32Array(pointCount);
+	                for (var i = 0; i < pointCount; ++i) {
+	                    data[i] = i;
+	                }
+	                gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG1.tex);
+	                    gl.uniform1i(u_pcg, 0);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, tempTex.fbo);
+	                    gl.enable(gl.SCISSOR_TEST);
+	                    gl.viewport(1, 0, 1, 1);
+	                    gl.scissor(1, 0, 1, 1);
+	                    gl.clearColor(0, 0, 0, 0);
+	                    gl.clear(gl.COLOR_BUFFER_BIT);
+	
+	                    gl.enable(gl.BLEND);
+	                    gl.blendFunc(gl.ONE, gl.ONE);
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                    gl.enableVertexAttribArray(v_id);
+	                    gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	                    gl.drawArrays(gl.POINTS, 0, pointCount);
+	                    gl.disableVertexAttribArray(v_id);
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	                    gl.disable(gl.BLEND);
+	
+	                    gl.disable(gl.SCISSOR_TEST);
+	                };
+	            }();
+	
+	            var updateGuess = function () {
+	                var prog = gl.createProgram();
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(41), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_const = gl.getUniformLocation(prog, "u_const");
+	                var u_alpha = gl.getUniformLocation(prog, "u_alpha");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    var temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.uniform1i(u_pcg, 0);
+	
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, tempTex.tex);
+	                    gl.uniform1i(u_const, 1);
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var updateSearch = function () {
+	                var prog = gl.createProgram();
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(42), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_const = gl.getUniformLocation(prog, "u_const");
+	                var u_beta = gl.getUniformLocation(prog, "u_beta");
+	
+	                return function () {
+	                    gl.useProgram(prog);
+	
+	                    var temp = grid.PCG1;
+	                    grid.PCG1 = grid.PCG2;
+	                    grid.PCG2 = temp;
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG2.tex);
+	                    gl.uniform1i(u_pcg, 0);
+	
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, tempTex.tex);
+	                    gl.uniform1i(u_const, 1);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.PCG1.fbo);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	                };
+	            }();
+	
+	            var velocityUpdate = function () {
+	                var prog = gl.createProgram();
+	                var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	                var fs = getShader(__webpack_require__(43), gl.FRAGMENT_SHADER);
+	                addShadersToProgram(prog, [vs, fs]);
+	
+	                var v_pos = gl.getAttribLocation(prog, "v_pos");
+	                var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	                var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	                var u_grid = gl.getUniformLocation(prog, "u_grid");
+	                var u_types = gl.getUniformLocation(prog, "u_types");
+	                var u_pcg = gl.getUniformLocation(prog, "u_pcg");
+	                var u_scale = gl.getUniformLocation(prog, "u_scale");
+	
+	                return function (t) {
+	                    gl.useProgram(prog);
+	
+	                    gl.activeTexture(gl.TEXTURE0);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                    gl.uniform1i(u_grid, 0);
+	
+	                    gl.activeTexture(gl.TEXTURE1);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.PCG1.tex);
+	                    gl.uniform1i(u_pcg, 1);
+	
+	                    gl.activeTexture(gl.TEXTURE2);
+	                    gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                    gl.uniform1i(u_types, 2);
+	
+	                    gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	                    gl.uniform1i(u_texLength, grid.textureLength);
+	                    gl.uniform1f(u_scale, 1 / grid.cellSize);
+	
+	                    gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                    gl.enableVertexAttribArray(v_pos);
+	                    gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	
+	                    gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                    gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	
+	                    gl.disableVertexAttribArray(v_pos);
+	
+	                    grid.swap();
+	                };
+	            }();
+	
+	            return function (t, settings) {
+	                clearMatrices();
+	
+	                buildA();
+	                setupb();
+	
+	                if (settings.precondition) {
+	                    if (settings.ipp) {
+	                        IPPprecondition(true); // set z = P-1 r, s = z
+	                    } else {
+	                        precondition();
+	                        preconditionZ(true);
+	                    }
+	                }
+	
+	                var buf = new Float32Array(4 * grid.textureLength * grid.textureLength);
+	
+	                for (var i = 0; i < solverSteps; ++i) {
+	
+	                    computeSigma(false, settings.precondition); // compute z dot r
+	
+	                    clearZ();
+	                    computeAs(); // set z = As 
+	                    computeAlpha(); // compute z dot s
+	
+	                    updateGuess();
+	
+	                    if (settings.precondition) {
+	                        clearZ();
+	                        if (settings.ipp) {
+	                            IPPprecondition(false);
+	                        } else {
+	                            preconditionZ(false);
+	                        }
+	                    }
+	                    computeSigma(true, settings.precondition);
+	
+	                    updateSearch();
+	                }
+	
+	                velocityUpdate(t);
+	            };
+	        }();
+	
+	        var extrapolateVelocity = function () {
+	
+	            var prog = gl.createProgram();
+	            var vs = getShader(__webpack_require__(20), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(44), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_pos = gl.getAttribLocation(prog, "v_pos");
+	            var u_texLength = gl.getUniformLocation(prog, "u_texLength");
+	            var u_cellSize = gl.getUniformLocation(prog, "u_cellSize");
+	            var u_grid = gl.getUniformLocation(prog, "u_grid");
+	            var u_types = gl.getUniformLocation(prog, "u_types");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	
+	            return function () {
+	                gl.useProgram(prog);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(u_grid, 0);
+	
+	                gl.activeTexture(gl.TEXTURE1);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.T.tex);
+	                gl.uniform1i(u_types, 1);
+	
+	                gl.uniform1i(u_texLength, grid.textureLength);
+	                gl.uniform1f(u_cellSize, grid.cellSize);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, grid.B.fbo);
+	                gl.viewport(0, 0, grid.textureLength, grid.textureLength);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, quad_vbo);
+	
+	                gl.enableVertexAttribArray(v_pos);
+	                gl.vertexAttribPointer(v_pos, 2, gl.FLOAT, false, 0, 0);
+	                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	                gl.disableVertexAttribArray(v_pos);
+	
+	                grid.swap();
+	            };
+	        }();
+	
+	        var updateVelocities = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(45), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(46), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var u_gA = gl.getUniformLocation(prog, "u_gA");
+	            var u_gOld = gl.getUniformLocation(prog, "u_gOld");
+	            var u_particles = gl.getUniformLocation(prog, "u_particles");
+	            var u_particleTexLength = gl.getUniformLocation(prog, "u_particleTexLength");
+	            var u_gridTexLength = gl.getUniformLocation(prog, "u_gridTexLength");
+	            var u_copy = gl.getUniformLocation(prog, "u_copy");
+	
+	            var u_min = gl.getUniformLocation(prog, "u_min");
+	            var u_cellSize = gl.getUniformLocation(prog, "u_cellSize");
+	            var u_count = gl.getUniformLocation(prog, "u_count");
+	            var u_t = gl.getUniformLocation(prog, "u_t");
+	            var u_smooth = gl.getUniformLocation(prog, "u_smooth");
+	
+	            var v_id = gl.getAttribLocation(prog, "v_id");
+	
+	            var pointCount = 2 * particles.length;
+	            var pointBuffer = gl.createBuffer();
+	            gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	            var data = new Float32Array(pointCount);
+	            for (var i = 0; i < pointCount; ++i) {
+	                data[i] = i;
+	            }
+	            gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	            return function (t, smooth) {
+	                gl.useProgram(prog);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, particles.B.fbo);
+	                gl.viewport(0, 0, particles.textureLength, particles.textureLength);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, particles.A.tex);
+	                gl.uniform1i(u_particles, 0);
+	
+	                gl.activeTexture(gl.TEXTURE1);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.A.tex);
+	                gl.uniform1i(u_gA, 1);
+	
+	                gl.activeTexture(gl.TEXTURE2);
+	                gl.bindTexture(gl.TEXTURE_2D, grid.old.tex);
+	                gl.uniform1i(u_gOld, 2);
+	
+	                gl.uniform1f(u_smooth, smooth);
+	
+	                gl.uniform1i(u_particleTexLength, particles.textureLength);
+	                gl.uniform1i(u_gridTexLength, grid.textureLength);
+	                gl.uniform3fv(u_min, grid.min);
+	                gl.uniform3i(u_count, grid.count[0], grid.count[1], grid.count[2]);
+	                gl.uniform1f(u_cellSize, grid.cellSize);
+	                gl.uniform1f(u_t, t);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                gl.enableVertexAttribArray(v_id);
+	                gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.POINTS, 0, pointCount);
+	
+	                gl.disableVertexAttribArray(v_id);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	                gl.bindTexture(gl.TEXTURE_2D, null);
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	
+	                particles.swap();
+	            };
+	        }();
+	
+	        var updatePositions = function () {
+	            var prog = gl.createProgram();
+	
+	            var vs = getShader(__webpack_require__(47), gl.VERTEX_SHADER);
+	            var fs = getShader(__webpack_require__(48), gl.FRAGMENT_SHADER);
+	            addShadersToProgram(prog, [vs, fs]);
+	
+	            var v_id = gl.getAttribLocation(prog, "v_id");
+	            var u_particles = gl.getUniformLocation(prog, "u_particles");
+	            var u_particleTexLength = gl.getUniformLocation(prog, "u_particleTexLength");
+	            var u_t = gl.getUniformLocation(prog, "u_t");
+	            var u_min = gl.getUniformLocation(prog, "u_min");
+	            var u_max = gl.getUniformLocation(prog, "u_max");
+	
+	            var pointCount = 2 * particles.length;
+	            var pointBuffer = gl.createBuffer();
+	            gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	            var data = new Float32Array(pointCount);
+	            for (var i = 0; i < pointCount; ++i) {
+	                data[i] = i;
+	            }
+	            gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	            gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	
+	            return function (t) {
+	                gl.useProgram(prog);
+	
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, particles.B.fbo);
+	                gl.viewport(0, 0, particles.textureLength, particles.textureLength);
+	
+	                gl.activeTexture(gl.TEXTURE0);
+	                gl.bindTexture(gl.TEXTURE_2D, particles.A.tex);
+	                gl.uniform1i(u_particles, 0);
+	
+	                gl.uniform1f(u_t, t);
+	                gl.uniform3fv(u_min, grid.min);
+	                gl.uniform3fv(u_max, grid.max);
+	                gl.uniform1i(u_particleTexLength, particles.textureLength);
+	
+	                gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+	                gl.enableVertexAttribArray(v_id);
+	                gl.vertexAttribPointer(v_id, 1, gl.FLOAT, false, 0, 0);
+	
+	                gl.drawArrays(gl.POINTS, 0, pointCount);
+	
+	                gl.disableVertexAttribArray(v_id);
+	                gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	                gl.bindTexture(gl.TEXTURE_2D, null);
+	                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	
+	                particles.swap();
+	            };
+	        }();
+	
+	        return {
+	            step: function step(t, settings) {
+	                gl.clearColor(0, 0, 0, 0.0);
+	                gl.disable(gl.DEPTH_TEST);
+	
+	                clearGridVelocity();
+	
+	                projectToGrid();
+	
+	                copyGrid();
+	
+	                markCells();
+	
+	                gravityUpdate(t);
+	
+	                enforceBoundary();
+	
+	                pressureSolve(t, settings);
+	
+	                extrapolateVelocity();
+	
+	                enforceBoundary();
+	
+	                updateVelocities(t, settings.viscosity / 100);
+	
+	                updatePositions(t);
+	            },
+	            shouldUpdate: false
+	        };
+	    }
+	
+	    return {
+	        Simulation: Simulation
+	    };
+	};
+
+/***/ }),
+/* 20 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nattribute vec2 v_pos;\n\nvarying vec2 f_uv;\n\n void main() {\n     f_uv = v_pos * 0.5 + 0.5;\n     gl_Position = vec4(v_pos, 0.0, 1.0);\n }"
+
+/***/ }),
+/* 21 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec2 f_uv;\n\nvoid main() {\n    gl_FragColor = vec4(0,0,0,0);\n}"
+
+/***/ }),
+/* 22 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nuniform vec3 u_min;\nuniform ivec3 u_count;\nuniform int u_texLength;\nuniform ivec3 u_goffset;\nuniform float u_cellSize;\nuniform int u_g;\nuniform bool u_weights;\n\nattribute float v_id;\nuniform sampler2D u_particles;\nuniform int u_particleTexLength;\nvarying float keep;\n\nvarying vec4 vel;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n    keep = 1.0;\n\n    int pIdx = int(v_id) * 2;\n    int vIdx = int(v_id) * 2 + 1;\n\n    int pV = pIdx / u_particleTexLength;\n    int pU = pIdx - pV * u_particleTexLength;\n\n    int vV = vIdx / u_particleTexLength;\n    int vU = vIdx - vV * u_particleTexLength;\n\n    vec2 pUV = (vec2(pU, pV) + 0.01) / float(u_particleTexLength);\n    vec2 vUV = (vec2(vU, vV) + 0.01) / float(u_particleTexLength);\n\n    vec3 v_pos = texture2D(u_particles, pUV).rgb;\n    vec3 v_vel = texture2D(u_particles, vUV).rgb;\n\n    vec3 cellOffset = vec3(0.5, 0.5, 0.5);\n    if (u_g == 0) {\n        cellOffset[0] = 0.0;\n    } else if (u_g == 1) {\n        cellOffset[1] = 0.0;\n    } else if (u_g == 2) {\n        cellOffset[2] = 0.0;\n    }\n    \n    vec3 fIdx = (v_pos - u_min) / u_cellSize;\n    ivec3 iIdx = ivec3(floor(fIdx)) + u_goffset;\n\n    if (\n        any(lessThan(fIdx, vec3(0,0,0))) || \n        any(greaterThanEqual(fIdx, floor(vec3(u_count) - cellOffset))) ||\n        any(lessThan(vec3(iIdx), vec3(0,0,0))) || \n        any(greaterThanEqual(vec3(iIdx), floor(vec3(u_count) - cellOffset)))\n    ) {   \n        keep = 0.0;\n        return;\n    }\n\n    float d = distance(fIdx, vec3(iIdx) + cellOffset);\n    float weight = max(1.0 - d*d / 2.0, 0.0);\n\n    vel = vec4(0.0, 0.0, 0.0, 0.0);\n    if (u_g == 0) {\n        if (u_weights) {\n            vel[0] = weight;\n        } else {\n            vel[0] = weight * v_vel.x;\n        }\n    } else if (u_g == 1) {\n        if (u_weights) {\n            vel[1] = weight;\n        } else {\n            vel[1] = weight * v_vel.y;\n        }\n    } else if (u_g == 2) {\n        if (u_weights) {\n            vel[2] = weight;\n        } else {\n            vel[2] = weight * v_vel.z;\n        }\n    }\n\n    int flatIdx = toFlat(iIdx, u_count);\n\n    int t = flatIdx / u_texLength;\n    int s = flatIdx - t * u_texLength;\n    vec2 st = (vec2(s, t) + 0.01) / float(u_texLength);\n\n    gl_Position = vec4(st * 2.0 - 1.0, -1.0, 1.0);\n    gl_PointSize = 1.0;\n}"
+
+/***/ }),
+/* 23 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec4 vel;\nvarying float keep;\n\nvoid main() {\n    if (keep == 0.0) discard;\n    gl_FragColor = vel;\n}"
+
+/***/ }),
+/* 24 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D gU_old;\nuniform sampler2D u_counts;\nuniform float u_t;\n\nvarying vec2 f_uv;\n\nvoid main() {\n    vec4 col = texture2D(gU_old, f_uv);\n    vec4 counts = texture2D(u_counts, f_uv);\n\n    if (counts.x > 0.0) col.x /= counts.x;\n    if (counts.y > 0.0) col.y /= counts.y;\n    if (counts.z > 0.0) col.z /= counts.z;\n\n    gl_FragColor = col;\n}"
+
+/***/ }),
+/* 25 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_grid;\n\nvarying vec2 f_uv;\n\nvoid main() {\n    gl_FragColor = texture2D(u_grid, f_uv);\n}"
+
+/***/ }),
+/* 26 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D gU_old;\nuniform float u_t;\n\nuniform sampler2D u_types;\nuniform int u_texLength;\nuniform ivec3 u_count;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n\n    ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n    vec4 col = texture2D(gU_old, f_uv);\n\n    for (int i = -1; i <= 1; ++i) {\n        for (int j = -1; j <= 1; ++j) {\n            for (int k = -1; k <= 1; ++k) {\n                if (checkIdx(idx + ivec3(i,j,k), u_count - 1) && gridComponentAt(u_types, idx + ivec3(i,j,k), u_count, u_texLength, 0) == 1.0) {\n                    col.g -= 9.81 * u_t;\n                    gl_FragColor = vec4(col.rgb, 1.0);\n                    return;\n                }\n            }\n        }  \n    }\n    gl_FragColor = col;\n}"
+
+/***/ }),
+/* 27 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nuniform vec3 u_min;\nuniform ivec3 u_count;\nuniform float u_cellSize;\nuniform int u_texLength;\n\nattribute float v_id;\nuniform sampler2D u_particles;\nuniform int u_particleTexLength;\nuniform bool u_near;\n\nvarying float type;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n    int _type;\n    int pIdx;\n    int vIdx;\n\n    if (u_near) {\n        pIdx = (int(v_id) / 6) * 2;\n        vIdx = (int(v_id) / 6) * 2 + 1;\n\n        _type = int(v_id) - (int(v_id) / 6) * 6;\n\n    } else {\n        pIdx = int(v_id) * 2;\n        vIdx = int(v_id) * 2 + 1;\n    }\n\n    int pV = pIdx / u_particleTexLength;\n    int pU = pIdx - pV * u_particleTexLength;\n\n    int vV = vIdx / u_particleTexLength;\n    int vU = vIdx - vV * u_particleTexLength;\n\n    vec2 pUV = (vec2(pU, pV) + 0.01) / float(u_particleTexLength);\n    vec2 vUV = (vec2(vU, vV) + 0.01) / float(u_particleTexLength);\n\n    vec3 v_pos = texture2D(u_particles, pUV).rgb;\n\n    ivec3 idx = indexOf(v_pos, u_min, u_cellSize);\n    idx = ivec3(clamp(vec3(idx), vec3(0,0,0), vec3(u_count - 2)));\n\n    ivec3 oldIdx = idx;\n    if (u_near) {\n        if (_type == 1) {\n            idx += ivec3(1, 0, 0);\n        } else if (_type == 2) {\n            idx -= ivec3(1, 0, 0);\n        } else if (_type == 3) {\n            idx += ivec3(0, 1, 0);\n        } else if (_type == 4) {\n            idx -= ivec3(0, 1, 0);\n        } else if (_type == 5) {\n            idx += ivec3(0, 0, 1);\n        } else if (_type == 6) {\n            idx -= ivec3(0, 0, 1);\n        }\n        type = 1.0;\n    } else {\n        type = 1.0;\n    }\n\n    if (!checkIdx(idx, u_count)) {\n        idx = oldIdx;\n    }\n\n    int flatIdx = toFlat(idx, u_count);\n    int t = flatIdx / u_texLength;\n    int s = flatIdx - t * u_texLength;\n    vec2 st = (vec2(s, t) + 0.1) / float(u_texLength);\n    gl_Position = vec4(st * 2.0 - 1.0, -1.0, 1.0);\n    gl_PointSize = 1.0;\n}"
+
+/***/ }),
+/* 28 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying float type;\n\nvoid main() {\n    gl_FragColor = vec4(type, type, type, type);\n}"
+
+/***/ }),
+/* 29 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\nuniform sampler2D u_grid;\nuniform int u_texLength;\nuniform ivec3 u_count;\nuniform float u_cellSize;\n\nvarying vec2 f_uv;\nvoid main() {\n    ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n\n    if (any(equal(idx, ivec3(0,0,0))) || any(equal(idx, u_count - 2))) {\n      gl_FragColor = vec4(2.0, 2.0, 2.0, 2.0);\n      discard;\n    } else {\n      discard;\n    }\n}"
+
+/***/ }),
+/* 30 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_grid;\nuniform sampler2D u_types;\nuniform int u_texLength;\nuniform vec3 u_min;\nuniform vec3 u_max;\nuniform float u_cellSize;\nuniform ivec3 u_count;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\n#define CELL_TYPE(offset) (checkIdx(idx + offset, u_count - 1) ? int(texture2D(u_types, XYZtoUV(idx + offset, u_texLength, u_count))[0]) : -1)\n\nvoid main() {\n    vec4 current = texture2D(u_grid, f_uv);\n    \n    ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n    \n    int leftType = CELL_TYPE(ivec3(-1,0,0));\n    int rightType = CELL_TYPE(ivec3(0,0,0));\n    int downType = CELL_TYPE(ivec3(0,-1,0));\n    int upType = CELL_TYPE(ivec3(0,0,0));\n    int backType = CELL_TYPE(ivec3(0,0,-1));\n    int frontType = CELL_TYPE(ivec3(0,0,0));\n\n    // set adjacent to solid to 0\n    if (leftType == 2 || leftType == -1) {\n      current[0] = max(current[0], 0.0);\n    }\n    if (rightType == 2 || rightType == -1) {\n      current[0] = min(current[0], 0.0);\n    }\n    if (downType == 2 || downType == -1) {\n      current[1] = max(current[1], 0.0);\n    }\n    if (upType == 2 || upType == -1) {\n      current[1] = min(current[1], 0.0);\n    }\n    if (backType == 2 || backType == -1) {\n      current[2] = max(current[2], 0.0);\n    }\n    if (frontType == 2 || frontType == -1) {\n      current[2] = min(current[2], 0.0);\n    }\n    if (idx.x == 0) current.x = max(0.0, current.x);\n    if (idx.y == 0) current.y = max(0.0, current.y);\n    if (idx.z == 0) current.z = max(0.0, current.z);\n\n    if (idx.x == u_count.x - 1) current.x = min(0.0, current.x);\n    if (idx.y == u_count.y - 1) current.y = min(0.0, current.y);\n    if (idx.z == u_count.z - 1) current.z = min(0.0, current.z);\n    gl_FragColor = current;\n}"
+
+/***/ }),
+/* 31 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform ivec3 u_count;\nuniform sampler2D u_types;\nuniform int u_texLength;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat ADIAG(ivec3 idx, ivec3 count, int texLength, sampler2D types) {\n  if (!checkIdx(idx, count - 1)) return 0.0;\n  vec2 uv = XYZtoUV(idx, texLength, count);\n\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, texLength, count);\n  vec2 mJ = XYZtoUV(mJi, texLength, count);\n  vec2 mK = XYZtoUV(mKi, texLength, count);\n  vec2 pI = XYZtoUV(pIi, texLength, count);\n  vec2 pJ = XYZtoUV(pJi, texLength, count);\n  vec2 pK = XYZtoUV(pKi, texLength, count);\n\n\n  float diag = 6.0;\n\n  if (texture2D(types, uv)[0] != 1.0) {\n    return diag;\n    // return 0.0;\n  }\n\n  if (!checkIdx(mIi, count - 1) || texture2D(types, mI)[0] == 2.0) diag--;\n  if (!checkIdx(mJi, count - 1) || texture2D(types, mJ)[0] == 2.0) diag--;\n  if (!checkIdx(mKi, count - 1) || texture2D(types, mK)[0] == 2.0) diag--;\n  if (!checkIdx(pIi, count - 1) || texture2D(types, pI)[0] == 2.0) diag--;\n  if (!checkIdx(pJi, count - 1) || texture2D(types, pJ)[0] == 2.0) diag--;\n  if (!checkIdx(pKi, count - 1) || texture2D(types, pK)[0] == 2.0) diag--;\n\n  return diag;\n}\n\nfloat AMAT(ivec3 idx1, ivec3 idx2, ivec3 count, int texLength, sampler2D types) {\n  vec2 uv1 = XYZtoUV(idx1, texLength, count);\n  vec2 uv2 = XYZtoUV(idx2, texLength, count);\n\n  if (!checkIdx(idx1, count - 1) || texture2D(types, uv1)[0] != 1.0) return 0.0;\n  if (!checkIdx(idx2, count - 1) || texture2D(types, uv2)[0] != 1.0) return 0.0;\n\n  return -1.0;\n}\n\nvoid main() {\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n  gl_FragColor = vec4(\n    AMAT(idx, idx + ivec3(1,0,0), u_count, u_texLength, u_types),\n    AMAT(idx, idx + ivec3(0,1,0), u_count, u_texLength, u_types),\n    AMAT(idx, idx + ivec3(0,0,1), u_count, u_texLength, u_types),\n    ADIAG(idx, u_count, u_texLength, u_types)\n  );\n\n  \n\n}"
+
+/***/ }),
+/* 32 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform ivec3 u_count;\nuniform sampler2D u_types;\nuniform sampler2D u_A;\nuniform int u_texLength;\nuniform float u_scale;\nvarying vec4 val;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n  if (!checkIdx(idx, u_count - 1)) discard;\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, u_texLength, u_count);\n  vec2 mJ = XYZtoUV(mJi, u_texLength, u_count);\n  vec2 mK = XYZtoUV(mKi, u_texLength, u_count);\n  vec2 pI = XYZtoUV(pIi, u_texLength, u_count);\n  vec2 pJ = XYZtoUV(pJi, u_texLength, u_count);\n  vec2 pK = XYZtoUV(pKi, u_texLength, u_count);\n\n  float mIt = texture2D(u_types, mI)[0];\n  float mJt = texture2D(u_types, mJ)[0];\n  float mKt = texture2D(u_types, mK)[0];\n  float pIt = texture2D(u_types, pI)[0];\n  float pJt = texture2D(u_types, pJ)[0];\n  float pKt = texture2D(u_types, pK)[0];\n\n  float div = 0.0;\n  \n  if (gridAt(u_types, idx, u_count, u_texLength)[0] == 1.0) {\n    div -= u_scale * (\n      texture2D(u_A, pI)[0] - texture2D(u_A, f_uv)[0] +\n      texture2D(u_A, pJ)[1] - texture2D(u_A, f_uv)[1] +\n      texture2D(u_A, pK)[2] - texture2D(u_A, f_uv)[2]\n    );\n  }\n\n  if (idx.x <= 0 || (checkIdx(mIi, u_count - 1) && mIt == 2.0)) {\n    div -= u_scale * texture2D(u_A, f_uv)[0];\n  }\n  if (idx.x >= u_count.x - 2 || (checkIdx(pIi, u_count - 1) && pIt == 2.0)) {\n    div += u_scale * texture2D(u_A, pI)[0];\n  }\n  if (idx.y <= 0 || (checkIdx(mJi, u_count - 1) && mJt == 2.0)) {\n    div -= u_scale * texture2D(u_A, f_uv)[1];\n  }\n  if (idx.y >= u_count.y - 2 || (checkIdx(pJi, u_count - 1) && pJt == 2.0)) {\n    div += u_scale * texture2D(u_A, pJ)[1];\n  }\n  if (idx.z <= 0 || (checkIdx(mKi, u_count - 1) && mKt == 2.0)) {\n    div -= u_scale * texture2D(u_A, f_uv)[2];\n  }\n  if (idx.z >= u_count.z - 2 || (checkIdx(pKi, u_count - 1) && pKt == 2.0)) {\n    div += u_scale * texture2D(u_A, pK)[2];\n  }\n //  p   r   z  s <-- initial search dir is residual\n  gl_FragColor = vec4(0, div, 0, div);\n  \n}"
+
+/***/ }),
+/* 33 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_A;\nuniform sampler2D u_Pre;\nuniform sampler2D u_types;\nuniform int u_texLength;\nuniform int u_iter;\nuniform ivec3 u_count;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat ADIAG(ivec3 idx, ivec3 count, int texLength, sampler2D types) {\n  if (!checkIdx(idx, count - 1)) return 0.0;\n  vec2 uv = XYZtoUV(idx, texLength, count);\n\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, texLength, count);\n  vec2 mJ = XYZtoUV(mJi, texLength, count);\n  vec2 mK = XYZtoUV(mKi, texLength, count);\n  vec2 pI = XYZtoUV(pIi, texLength, count);\n  vec2 pJ = XYZtoUV(pJi, texLength, count);\n  vec2 pK = XYZtoUV(pKi, texLength, count);\n\n\n  float diag = 6.0;\n\n  if (texture2D(types, uv)[0] != 1.0) {\n    return diag;\n    // return 0.0;\n  }\n\n  if (!checkIdx(mIi, count - 1) || texture2D(types, mI)[0] == 2.0) diag--;\n  if (!checkIdx(mJi, count - 1) || texture2D(types, mJ)[0] == 2.0) diag--;\n  if (!checkIdx(mKi, count - 1) || texture2D(types, mK)[0] == 2.0) diag--;\n  if (!checkIdx(pIi, count - 1) || texture2D(types, pI)[0] == 2.0) diag--;\n  if (!checkIdx(pJi, count - 1) || texture2D(types, pJ)[0] == 2.0) diag--;\n  if (!checkIdx(pKi, count - 1) || texture2D(types, pK)[0] == 2.0) diag--;\n\n  return diag;\n}\n\nfloat AMAT(ivec3 idx1, ivec3 idx2, ivec3 count, int texLength, sampler2D types) {\n  vec2 uv1 = XYZtoUV(idx1, texLength, count);\n  vec2 uv2 = XYZtoUV(idx2, texLength, count);\n\n  if (!checkIdx(idx1, count - 1) || texture2D(types, uv1)[0] != 1.0) return 0.0;\n  if (!checkIdx(idx2, count - 1) || texture2D(types, uv2)[0] != 1.0) return 0.0;\n\n  return -1.0;\n}\n\n#define GET(grid, uv, c) (uv.x < 0.0 ? 0.0 : texture2D(grid, uv)[c])\n#define Aplusi(uv) GET(u_A, uv, 0)\n#define Aplusj(uv) GET(u_A, uv, 1)\n#define Aplusk(uv) GET(u_A, uv, 2)\n#define Adiag(uv) GET(u_A, uv, 3)\n#define precon(uv) GET(u_Pre, uv, 0)\n\nvoid main() {\n    if (texture2D(u_types, f_uv)[0] != 1.0) discard;\n    ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n    if (idx.x > u_iter || idx.y > u_iter || idx.z > u_iter) discard;\n    if (!checkIdx(idx, u_count - 1)) discard;\n\n    vec2 mI = XYZtoUV(idx - ivec3(1,0,0), u_texLength, u_count);\n    vec2 mJ = XYZtoUV(idx - ivec3(0,1,0), u_texLength, u_count);\n    vec2 mK = XYZtoUV(idx - ivec3(0,0,1), u_texLength, u_count);\n    if (!checkIdx(idx - ivec3(1,0,0), u_count-1)) mI[0] = -1.0;\n    if (!checkIdx(idx - ivec3(0,1,0), u_count-1)) mJ[0] = -1.0;\n    if (!checkIdx(idx - ivec3(0,0,1), u_count-1)) mK[0] = -1.0; \n\n    float diag = Adiag(f_uv);\n    float e = diag - pow(Aplusi(mI) * precon(mI), 2.0) - pow(Aplusj(mJ) * precon(mJ), 2.0) - pow(Aplusk(mK) * precon(mK), 2.0);\n  if (e < 0.25 * diag) {\n    e = diag;\n  }\n  e = 1.0 / sqrt(e);\n  gl_FragColor = vec4(e, e, e, 1.0);\n}"
+
+/***/ }),
+/* 34 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_pcg;\nuniform sampler2D u_A;\nuniform sampler2D u_types;\nuniform int u_step;\nuniform int u_texLength;\nuniform ivec3 u_count;\nuniform bool u_setS;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\n#define GET(grid, uv, c) (texture2D(grid, uv)[c])\n#define Aplusi(uv) GET(u_A, uv, 0)\n#define Aplusj(uv) GET(u_A, uv, 1)\n#define Aplusk(uv) GET(u_A, uv, 2)\n#define Adiag(uv) GET(u_A, uv, 3)\n\nvoid main() {\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n\n  vec4 curr = texture2D(u_pcg, f_uv);\n\n  if (!checkIdx(idx, u_count - 1)) {\n    gl_FragColor = curr;\n    return;\n  }\n\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 pI = XYZtoUV(pIi, u_texLength, u_count);\n  vec2 pJ = XYZtoUV(pJi, u_texLength, u_count);\n  vec2 pK = XYZtoUV(pKi, u_texLength, u_count);\n\n  if (u_step == 0) {\n    if (checkIdx(pIi, u_count - 1)) {\n      curr[2] = curr[1] - 1.0 / Adiag(pI) * Aplusi(f_uv) * GET(u_pcg, pI, 1);\n    }\n    if (checkIdx(pJi, u_count - 1)) {\n      curr[2] = curr[1] - 1.0 / Adiag(pJ) * Aplusj(f_uv) * GET(u_pcg, pJ, 1);\n    }\n    if (checkIdx(pKi, u_count - 1)) {\n      curr[2] = curr[1] - 1.0 / Adiag(pK) * Aplusk(f_uv) * GET(u_pcg, pK, 1);\n    }\n  } else if (u_step == 1) {\n    float invdiag = 1.0 / Adiag(f_uv);\n    if (checkIdx(pIi, u_count - 1)) {\n      curr[2] -= invdiag * Aplusi(f_uv) * GET(u_pcg, pI, 2);\n    }\n    if (checkIdx(pJi, u_count - 1)) {\n      curr[2] -= invdiag * Aplusj(f_uv) * GET(u_pcg, pJ, 2);\n    }\n    if (checkIdx(pKi, u_count - 1)) {\n      curr[2] -= invdiag * Aplusk(f_uv) * GET(u_pcg, pK, 2);\n    }\n    if (u_setS) curr[3] = curr[2];\n  }\n\n  gl_FragColor = curr;\n}"
+
+/***/ }),
+/* 35 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat ADIAG(ivec3 idx, ivec3 count, int texLength, sampler2D types) {\n  if (!checkIdx(idx, count - 1)) return 0.0;\n  vec2 uv = XYZtoUV(idx, texLength, count);\n\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, texLength, count);\n  vec2 mJ = XYZtoUV(mJi, texLength, count);\n  vec2 mK = XYZtoUV(mKi, texLength, count);\n  vec2 pI = XYZtoUV(pIi, texLength, count);\n  vec2 pJ = XYZtoUV(pJi, texLength, count);\n  vec2 pK = XYZtoUV(pKi, texLength, count);\n\n\n  float diag = 6.0;\n\n  if (texture2D(types, uv)[0] != 1.0) {\n    return diag;\n    // return 0.0;\n  }\n\n  if (!checkIdx(mIi, count - 1) || texture2D(types, mI)[0] == 2.0) diag--;\n  if (!checkIdx(mJi, count - 1) || texture2D(types, mJ)[0] == 2.0) diag--;\n  if (!checkIdx(mKi, count - 1) || texture2D(types, mK)[0] == 2.0) diag--;\n  if (!checkIdx(pIi, count - 1) || texture2D(types, pI)[0] == 2.0) diag--;\n  if (!checkIdx(pJi, count - 1) || texture2D(types, pJ)[0] == 2.0) diag--;\n  if (!checkIdx(pKi, count - 1) || texture2D(types, pK)[0] == 2.0) diag--;\n\n  return diag;\n}\n\nfloat AMAT(ivec3 idx1, ivec3 idx2, ivec3 count, int texLength, sampler2D types) {\n  vec2 uv1 = XYZtoUV(idx1, texLength, count);\n  vec2 uv2 = XYZtoUV(idx2, texLength, count);\n\n  if (!checkIdx(idx1, count - 1) || texture2D(types, uv1)[0] != 1.0) return 0.0;\n  if (!checkIdx(idx2, count - 1) || texture2D(types, uv2)[0] != 1.0) return 0.0;\n\n  return -1.0;\n}\n\nuniform ivec3 u_count;\nuniform sampler2D u_A;\nuniform sampler2D u_pre;\nuniform sampler2D u_types;\nuniform sampler2D u_pcg;\nuniform sampler2D u_q;\nuniform int u_texLength;\n\nuniform int u_step;\nuniform int u_iter;\nuniform bool u_setS;\n\nvarying vec2 f_uv;\n\nvarying vec4 val;\n\n#define GET(grid, uv, c) (uv.x < 0.0 ? 0.0 : texture2D(grid, uv)[c])\n#define Aplusi(uv) GET(u_A, uv, 0)\n#define Aplusj(uv) GET(u_A, uv, 1)\n#define Aplusk(uv) GET(u_A, uv, 2)\n#define Adiag(uv) GET(u_A, uv, 3)\n#define precon(uv) GET(u_pre, uv, 0)\n\nvoid main() {\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n  vec4 curr;\n  if (u_step == 0) {\n    curr = texture2D(u_q, f_uv);\n  } else if (u_step == 1) {\n    curr = texture2D(u_pcg, f_uv);\n  }\n  if (!checkIdx(idx, u_count - 1) || !(texture2D(u_types, f_uv)[0] == 1.0 || texture2D(u_types, f_uv)[0] == 3.0)) {\n    gl_FragColor = curr;\n    return;\n  }\n\n  vec2 mI = XYZtoUV(idx - ivec3(1,0,0), u_texLength, u_count);\n  vec2 mJ = XYZtoUV(idx - ivec3(0,1,0), u_texLength, u_count);\n  vec2 mK = XYZtoUV(idx - ivec3(0,0,1), u_texLength, u_count);\n  vec2 pI = XYZtoUV(idx + ivec3(1,0,0), u_texLength, u_count);\n  vec2 pJ = XYZtoUV(idx + ivec3(0,1,0), u_texLength, u_count);\n  vec2 pK = XYZtoUV(idx + ivec3(0,0,1), u_texLength, u_count);\n\n  if (!checkIdx(idx - ivec3(1,0,0), u_count-1)) mI[0] = -1.0;\n  if (!checkIdx(idx - ivec3(0,1,0), u_count-1)) mJ[0] = -1.0;\n  if (!checkIdx(idx - ivec3(0,0,1), u_count-1)) mK[0] = -1.0; \n  if (!checkIdx(idx + ivec3(1,0,0), u_count-1)) pI[0] = -1.0;\n  if (!checkIdx(idx + ivec3(0,1,0), u_count-1)) pJ[0] = -1.0;\n  if (!checkIdx(idx + ivec3(0,0,1), u_count-1)) pK[0] = -1.0; \n  if (u_step == 0) {\n    if (idx.x <= u_iter && idx.y <= u_iter && idx.z <= u_iter) {\n      float t = texture2D(u_pcg, f_uv)[1]\n        - Aplusi(mI) * precon(mI) * GET(u_q, mI, 0)\n        - Aplusj(mJ) * precon(mJ) * GET(u_q, mJ, 0)\n        - Aplusk(mK) * precon(mK) * GET(u_q, mK, 0);\n      curr[0] = t * precon(f_uv);\n    }\n\n  } else if (u_step == 1) {\n    if (idx.x >= u_iter && idx.y >= u_iter && idx.z >= u_iter) {\n      float t = texture2D(u_q, f_uv)[0]\n        - Aplusi(f_uv) * precon(f_uv) * GET(u_pcg, pI, 2)\n        - Aplusj(f_uv) * precon(f_uv) * GET(u_pcg, pJ, 2)\n        - Aplusk(f_uv) * precon(f_uv) * GET(u_pcg, pK, 2);\n      curr[2] = t * precon(f_uv);\n      if (u_setS) curr[3] = curr[2];\n    }\n  }\n\n  gl_FragColor = curr;\n}"
+
+/***/ }),
+/* 36 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nattribute float v_id;\nuniform ivec3 u_count;\nuniform int u_texLength;\nuniform sampler2D u_pcg;\nvarying vec4 val;\nvarying float keep;\nuniform bool u_preconditioned;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n  gl_PointSize = 1.0;\n\n  int id = int(v_id);\n\n  ivec3 idx = toXYZ(id, u_count);\n\n  vec4 texVal = texture2D(u_pcg, XYZtoUV(idx, u_texLength, u_count));\n\n  keep = 1.0;\n\n  if (u_preconditioned) {\n    texVal[0] = texVal[1] * texVal[2];\n  } else {\n    texVal[0] = texVal[1] * texVal[1];\n  }\n  \n  val = texVal;\n\n  if (!checkIdx(idx, u_count-1)) val = vec4(0);\n\n  gl_Position = vec4(0,0,0,1);\n}"
+
+/***/ }),
+/* 37 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec4 val;\nvarying float keep;\n\nvoid main() {\n  if (keep != 1.0) discard;\n  gl_FragColor = val;\n}"
+
+/***/ }),
+/* 38 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_A;\nuniform sampler2D u_types;\nuniform sampler2D u_pcg;\nuniform ivec3 u_count;\nuniform int u_texLength;\nuniform float u_scale;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat ADIAG(ivec3 idx, ivec3 count, int texLength, sampler2D types) {\n  if (!checkIdx(idx, count - 1)) return 0.0;\n  vec2 uv = XYZtoUV(idx, texLength, count);\n\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, texLength, count);\n  vec2 mJ = XYZtoUV(mJi, texLength, count);\n  vec2 mK = XYZtoUV(mKi, texLength, count);\n  vec2 pI = XYZtoUV(pIi, texLength, count);\n  vec2 pJ = XYZtoUV(pJi, texLength, count);\n  vec2 pK = XYZtoUV(pKi, texLength, count);\n\n\n  float diag = 6.0;\n\n  if (texture2D(types, uv)[0] != 1.0) {\n    return diag;\n    // return 0.0;\n  }\n\n  if (!checkIdx(mIi, count - 1) || texture2D(types, mI)[0] == 2.0) diag--;\n  if (!checkIdx(mJi, count - 1) || texture2D(types, mJ)[0] == 2.0) diag--;\n  if (!checkIdx(mKi, count - 1) || texture2D(types, mK)[0] == 2.0) diag--;\n  if (!checkIdx(pIi, count - 1) || texture2D(types, pI)[0] == 2.0) diag--;\n  if (!checkIdx(pJi, count - 1) || texture2D(types, pJ)[0] == 2.0) diag--;\n  if (!checkIdx(pKi, count - 1) || texture2D(types, pK)[0] == 2.0) diag--;\n\n  return diag;\n}\n\nfloat AMAT(ivec3 idx1, ivec3 idx2, ivec3 count, int texLength, sampler2D types) {\n  vec2 uv1 = XYZtoUV(idx1, texLength, count);\n  vec2 uv2 = XYZtoUV(idx2, texLength, count);\n\n  if (!checkIdx(idx1, count - 1) || texture2D(types, uv1)[0] != 1.0) return 0.0;\n  if (!checkIdx(idx2, count - 1) || texture2D(types, uv2)[0] != 1.0) return 0.0;\n\n  return -1.0;\n}\n\n#define GET(grid, uv, c) (texture2D(grid, uv)[c])\n#define Aplusi(uv) GET(u_A, uv, 0)\n#define Aplusj(uv) GET(u_A, uv, 1)\n#define Aplusk(uv) GET(u_A, uv, 2)\n#define Adiag(uv) GET(u_A, uv, 3)\n\nvoid main() {\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n  vec4 curr = texture2D(u_pcg, f_uv);\n  if (!checkIdx(idx, u_count - 1)) {\n    gl_FragColor = curr;\n    return;\n  }\n\n  ivec3 mIi = idx - ivec3(1,0,0);\n  ivec3 mJi = idx - ivec3(0,1,0);\n  ivec3 mKi = idx - ivec3(0,0,1);\n  ivec3 pIi = idx + ivec3(1,0,0);\n  ivec3 pJi = idx + ivec3(0,1,0);\n  ivec3 pKi = idx + ivec3(0,0,1);\n\n  vec2 mI = XYZtoUV(mIi, u_texLength, u_count);\n  vec2 mJ = XYZtoUV(mJi, u_texLength, u_count);\n  vec2 mK = XYZtoUV(mKi, u_texLength, u_count);\n  vec2 pI = XYZtoUV(pIi, u_texLength, u_count);\n  vec2 pJ = XYZtoUV(pJi, u_texLength, u_count);\n  vec2 pK = XYZtoUV(pKi, u_texLength, u_count);\n\n  float val = 0.0;\n  if (checkIdx(mIi, u_count - 1)) {\n    val += Aplusi(mI) * GET(u_pcg, mI, 3);\n  }\n  if (checkIdx(mJi, u_count - 1)) {\n    val += Aplusj(mJ) * GET(u_pcg, mJ, 3);\n  }\n  if (checkIdx(mKi, u_count - 1)) {\n    val += Aplusk(mK) * GET(u_pcg, mK, 3);\n  }\n\n  val += Adiag(f_uv) * GET(u_pcg, f_uv, 3);\n  \n  if (checkIdx(pIi, u_count - 1)) {\n    val += Aplusi(f_uv) * GET(u_pcg, pI, 3);\n  }\n  if (checkIdx(pJi, u_count - 1)) {\n    val += Aplusj(f_uv) * GET(u_pcg, pJ, 3);\n  }\n  if (checkIdx(pKi, u_count - 1)) {\n    val += Aplusk(f_uv) * GET(u_pcg, pK, 3);\n  }\n\n  curr[2] = u_scale * val;\n  gl_FragColor = curr;\n}"
+
+/***/ }),
+/* 39 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_pcg;\n\nvarying vec2 f_uv;\n\nvoid main() {\n  vec4 val = texture2D(u_pcg, f_uv);\n  val[2] = 0.0;\n  gl_FragColor = val;\n}"
+
+/***/ }),
+/* 40 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nattribute float v_id;\nuniform ivec3 u_count;\nuniform int u_texLength;\nuniform sampler2D u_pcg;\nvarying vec4 val;\nvarying float keep;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n  gl_PointSize = 1.0;\n\n  int id = int(v_id);\n\n  ivec3 idx = toXYZ(id, u_count);\n\n  vec4 texVal = texture2D(u_pcg, XYZtoUV(idx, u_texLength, u_count));\n\n  keep = 1.0;\n  texVal[0] = texVal[2] * texVal[3];\n  val = texVal;\n\n  if (!checkIdx(idx, u_count-1)) val = vec4(0);\n\n  gl_Position = vec4(0,0,0,1);\n}"
+
+/***/ }),
+/* 41 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_pcg;\nuniform sampler2D u_const;\nuniform int u_texLength;\nuniform ivec3 u_count;\nuniform float u_alpha;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n  vec4 curr = texture2D(u_pcg, f_uv);\n\n  float sigma = texture2D(u_const, vec2(0,0))[0];\n  float zdots = texture2D(u_const, vec2(1,0))[0];\n  float alpha = sigma / zdots;\n\n  if (((zdots <= 0.0 || 0.0 <= zdots) ? false : true)) alpha = 0.0;\n  if (zdots == 0.0) alpha = 0.0;\n\n  curr[0] += alpha*curr[3];\n  curr[1] -= alpha*curr[2];\n\n  gl_FragColor = curr;\n}"
+
+/***/ }),
+/* 42 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_pcg;\nuniform sampler2D u_const;\nuniform int u_texLength;\nuniform ivec3 u_count;\nuniform float u_beta;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n  vec4 curr = texture2D(u_pcg, f_uv);\n\n  float sigmanew = texture2D(u_const, vec2(0,1))[0];\n  float sigma = texture2D(u_const, vec2(0,0))[0];\n  float beta = sigmanew / sigma;\n\n  if (((sigma <= 0.0 || 0.0 <= sigma) ? false : true)) beta = 0.0;\n  if (sigma == 0.0) beta = 0.0;\n\n  curr[3] = curr[2] + beta*curr[3];\n  // curr[3] = curr[2] + u_beta*curr[3];\n\n  gl_FragColor = curr;\n}"
+
+/***/ }),
+/* 43 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_grid;\nuniform sampler2D u_types;\nuniform sampler2D u_pcg;\n\nuniform float u_scale;\nuniform int u_texLength;\nuniform ivec3 u_count;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\n#define CELL_TYPE(offset) (checkIdx(idx + offset, u_count - 1) ? int(texture2D(u_types, XYZtoUV(idx + offset, u_texLength, u_count))[0]) : -1)\n\nvoid main() {\n  ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n\n  vec4 current = texture2D(u_grid, f_uv);\n\n  int leftType = CELL_TYPE(ivec3(-1,0,0));\n  int rightType = CELL_TYPE(ivec3(0,0,0));\n  int downType = CELL_TYPE(ivec3(0,-1,0));\n  int upType = CELL_TYPE(ivec3(0,0,0));\n  int backType = CELL_TYPE(ivec3(0,0,-1));\n  int frontType = CELL_TYPE(ivec3(0,0,0));\n\n  if (leftType == 1 || rightType == 1) {\n    current[0] -= u_scale * (\n      texture2D(u_pcg, XYZtoUV(idx, u_texLength, u_count))[0] -\n      texture2D(u_pcg, XYZtoUV(idx - ivec3(1,0,0), u_texLength, u_count))[0]\n    );\n  }\n\n  if (downType == 1 || upType == 1) {\n    current[1] -= u_scale * (\n      texture2D(u_pcg, XYZtoUV(idx, u_texLength, u_count))[0] -\n      texture2D(u_pcg, XYZtoUV(idx - ivec3(0,1,0), u_texLength, u_count))[0]\n    );\n  }\n\n  if (backType == 1 || frontType == 1) {\n    current[2] -= u_scale * (\n      texture2D(u_pcg, XYZtoUV(idx, u_texLength, u_count))[0] -\n      texture2D(u_pcg, XYZtoUV(idx - ivec3(0,0,1), u_texLength, u_count))[0]\n    );\n  }\n\n  gl_FragColor = current;\n}"
+
+/***/ }),
+/* 44 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nuniform sampler2D u_grid;\nuniform sampler2D u_types;\nuniform int u_texLength;\nuniform float u_cellSize;\nuniform ivec3 u_count;\n\nvarying vec2 f_uv;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n    ivec3 idx = UVtoXYZ(f_uv, u_texLength, u_count);\n\n    if (!checkIdx(idx, u_count)) {\n        discard;\n    }\n\n    vec4 current = texture2D(u_grid, f_uv);\n\n    ivec3 tCount = u_count - ivec3(1,1,1);\n    ivec3 xCount = u_count - ivec3(0,1,1);\n    ivec3 yCount = u_count - ivec3(1,0,1);\n    ivec3 zCount = u_count - ivec3(1,1,0);\n\n    if (\n        checkIdx(idx, xCount) &&\n        ((checkIdx(idx + ivec3(-1,0,0), tCount) &&\n        gridComponentAt(u_types, idx + ivec3(-1,0,0), u_count, u_texLength, 0) != 1.0) ||\n        (checkIdx(idx, tCount) &&\n        gridComponentAt(u_types, idx, u_count, u_texLength, 0) != 1.0))\n    ) {\n        bool fromU = (checkIdx(idx + ivec3(-1, 1, 0), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 1, 0), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 1, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 1, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromD = (checkIdx(idx + ivec3(-1,-1, 0), tCount) && gridComponentAt(u_types, idx + ivec3(-1,-1, 0), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0,-1, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 0,-1, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromF = (checkIdx(idx + ivec3(-1, 0, 1), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 0, 1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 0, 1), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 0, 1), u_count, u_texLength, 0) == 1.0);\n        bool fromB = (checkIdx(idx + ivec3(-1, 0,-1), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 0,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 0,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 0,-1), u_count, u_texLength, 0) == 1.0);\n        float val = 0.0;\n\n        int count = int(fromU) + int(fromD) + int(fromF) + int(fromB);\n        if (fromU) val += gridComponentAt(u_grid, idx + ivec3(0, 1, 0), u_count, u_texLength, 0);\n        if (fromD) val += gridComponentAt(u_grid, idx + ivec3(0,-1, 0), u_count, u_texLength, 0);\n        if (fromF) val += gridComponentAt(u_grid, idx + ivec3(0, 0, 1), u_count, u_texLength, 0);\n        if (fromB) val += gridComponentAt(u_grid, idx + ivec3(0, 0,-1), u_count, u_texLength, 0);\n\n        if (count > 0) {\n            current.x = val / float(count);\n        }\n    }\n\n    if (\n        checkIdx(idx, yCount) &&\n        ((checkIdx(idx + ivec3(0,-1,0), tCount) &&\n        gridComponentAt(u_types, idx + ivec3(0,-1,0), u_count, u_texLength, 0) != 1.0) ||\n        (checkIdx(idx, tCount) &&\n        gridComponentAt(u_types, idx, u_count, u_texLength, 0) != 1.0))\n    ) {\n        bool fromU = (checkIdx(idx + ivec3( 1,-1, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 1,-1, 0), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 1, 0, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 1, 0, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromD = (checkIdx(idx + ivec3(-1,-1, 0), tCount) && gridComponentAt(u_types, idx + ivec3(-1,-1, 0), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3(-1, 0, 0), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 0, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromF = (checkIdx(idx + ivec3( 0,-1, 1), tCount) && gridComponentAt(u_types, idx + ivec3( 0,-1, 1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 0, 1), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 0, 1), u_count, u_texLength, 0) == 1.0);\n        bool fromB = (checkIdx(idx + ivec3( 0,-1,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 0,-1,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 0,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 0,-1), u_count, u_texLength, 0) == 1.0);\n        float val = 0.0;\n\n        int count = int(fromU) + int(fromD) + int(fromF) + int(fromB);\n        if (fromU) val += gridComponentAt(u_grid, idx + ivec3( 1, 0, 0), u_count, u_texLength, 1);\n        if (fromD) val += gridComponentAt(u_grid, idx + ivec3(-1, 0, 0), u_count, u_texLength, 1);\n        if (fromF) val += gridComponentAt(u_grid, idx + ivec3( 0, 0, 1), u_count, u_texLength, 1);\n        if (fromB) val += gridComponentAt(u_grid, idx + ivec3( 0, 0,-1), u_count, u_texLength, 1);\n\n        if (count > 0) {\n            current.y = val / float(count);\n        }\n    }\n\n    if (\n        checkIdx(idx, zCount) &&\n        ((checkIdx(idx + ivec3(0,0,-1), tCount) &&\n        gridComponentAt(u_types, idx + ivec3(0,0,-1), u_count, u_texLength, 0) != 1.0) ||\n        (checkIdx(idx, tCount) &&\n        gridComponentAt(u_types, idx, u_count, u_texLength, 0) != 1.0))\n    ) {\n        bool fromU = (checkIdx(idx + ivec3( 1, 0,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 1, 0,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 1, 0, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 1, 0, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromD = (checkIdx(idx + ivec3(-1, 0,-1), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 0,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3(-1, 0, 0), tCount) && gridComponentAt(u_types, idx + ivec3(-1, 0, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromF = (checkIdx(idx + ivec3( 0, 1,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 1,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0, 1, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 0, 1, 0), u_count, u_texLength, 0) == 1.0);\n        bool fromB = (checkIdx(idx + ivec3( 0,-1,-1), tCount) && gridComponentAt(u_types, idx + ivec3( 0,-1,-1), u_count, u_texLength, 0) == 1.0) ||\n                     (checkIdx(idx + ivec3( 0,-1, 0), tCount) && gridComponentAt(u_types, idx + ivec3( 0,-1, 0), u_count, u_texLength, 0) == 1.0);\n        float val = 0.0;\n\n        int count = int(fromU) + int(fromD) + int(fromF) + int(fromB);\n        if (fromU) val += gridComponentAt(u_grid, idx + ivec3( 1, 0, 0), u_count, u_texLength, 2);\n        if (fromD) val += gridComponentAt(u_grid, idx + ivec3(-1, 0, 0), u_count, u_texLength, 2);\n        if (fromF) val += gridComponentAt(u_grid, idx + ivec3( 0, 1, 0), u_count, u_texLength, 2);\n        if (fromB) val += gridComponentAt(u_grid, idx + ivec3( 0,-1, 0), u_count, u_texLength, 2);\n\n        if (count > 0) {\n            current.z = val / float(count);\n        }\n    }\n    \n    gl_FragColor = current;\n}"
+
+/***/ }),
+/* 45 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nattribute float v_id;\nuniform sampler2D u_particles;\nuniform sampler2D u_gA;\nuniform sampler2D u_gOld;\n\nuniform float u_cellSize;\nuniform vec3 u_min;\nuniform ivec3 u_count;\n\nuniform int u_particleTexLength;\nuniform int u_gridTexLength;\n\nuniform float u_t;\nuniform float u_smooth;\n\nvarying vec4 val;\n\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n    int pIdx = (int(v_id) / 2) * 2;\n    int vIdx = pIdx + 1;\n\n    int isPos = int(v_id) - 2*(int(v_id) / 2);\n\n    int pV = pIdx / u_particleTexLength;\n    int pU = pIdx - pV * u_particleTexLength;\n\n    int vV = vIdx / u_particleTexLength;\n    int vU = vIdx - vV * u_particleTexLength;\n\n    vec2 pUV = (vec2(pU, pV) + 0.01) / float(u_particleTexLength);\n    vec2 vUV = (vec2(vU, vV) + 0.01) / float(u_particleTexLength);\n\n    vec4 pos = texture2D(u_particles, pUV);\n    vec4 vel = texture2D(u_particles, vUV);\n\n    if (isPos == 1) {\n        val = pos;\n        gl_Position = vec4(pUV * 2.0 - 1.0, 0.0, 1.0);\n    } else {\n\n        vec3 velA = vec3(\n            gridComponentInterpolate(u_gA, pos.rgb, u_min, -vec3(0,0.5,0.5), u_count, u_gridTexLength, u_cellSize, 0),\n            gridComponentInterpolate(u_gA, pos.rgb, u_min, -vec3(0.5,0,0.5), u_count, u_gridTexLength, u_cellSize, 1),\n            gridComponentInterpolate(u_gA, pos.rgb, u_min, -vec3(0.5,0.5,0), u_count, u_gridTexLength, u_cellSize, 2)\n        );\n        vec3 velB = vec3(\n            gridComponentInterpolate(u_gOld, pos.rgb, u_min, -vec3(0,0.5,0.5), u_count, u_gridTexLength, u_cellSize, 0),\n            gridComponentInterpolate(u_gOld, pos.rgb, u_min, -vec3(0.5,0,0.5), u_count, u_gridTexLength, u_cellSize, 1),\n            gridComponentInterpolate(u_gOld, pos.rgb, u_min, -vec3(0.5,0.5,0), u_count, u_gridTexLength, u_cellSize, 2)\n        );\n\n\n        val.rgb = (1.0 - u_smooth) * (vel.rgb + (velA - velB)) + u_smooth * velA;\n        // val.rgb = velA;\n        val.a = vel.w;\n        gl_Position = vec4(vUV * 2.0 - 1.0, 0.0, 1.0);\n    }\n    \n    gl_PointSize = 1.0;\n}"
+
+/***/ }),
+/* 46 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec4 val;\n\nvoid main() {\n    gl_FragColor = val;\n}"
+
+/***/ }),
+/* 47 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nattribute float v_id;\nuniform sampler2D u_particles;\nuniform int u_particleTexLength;\n\nuniform float u_t;\nuniform vec3 u_min;\nuniform vec3 u_max;\n\nvarying vec4 val;\n\nivec3 toXYZ(int idx, ivec3 count) {\n    int z = idx / (count.x * count.y);\n    int y = (idx - z * (count.x * count.y)) / count.x;\n    int x = idx - y * count.x - z * (count.x * count.y);\n\n    return ivec3(x,y,z);\n}\n\nint toFlat(ivec3 idx, ivec3 count) {\n    return idx.x + idx.y * count.x + idx.z * count.x * count.y;\n}\n//https://www.lighthouse3d.com/tutorials/glsl-tutorial/texture-coordinates/\nivec3 UVtoXYZ(vec2 uv, int texLength, ivec3 count) {\n    ivec2 pIdx = ivec2(floor(float(texLength) * uv));\n    int idx = pIdx.x + pIdx.y * texLength;\n    return toXYZ(idx, count);\n}\n\nvec2 XYZtoUV(ivec3 idx, int texLength, ivec3 count) {\n    int i = toFlat(idx, count);\n    int v = i / texLength;\n    int u = i - v * texLength;\n    return (vec2(u, v) + 0.01) / float(texLength);\n}\n\nvec4 gridAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    return texture2D(grid, uv);\n}\n\nfloat gridComponentAt(sampler2D grid, ivec3 idx, ivec3 count, int texLength, int c) {\n    vec2 uv = XYZtoUV(idx, texLength, count);\n    \n    if (c == 0) return texture2D(grid, uv)[0];\n    if (c == 1) return texture2D(grid, uv)[1];\n    if (c == 2) return texture2D(grid, uv)[2];\n    if (c == 3) return texture2D(grid, uv)[3];\n    return 0.0;\n}\n\nbool checkIdx(ivec3 idx, ivec3 count) {\n    return all(greaterThanEqual(idx, ivec3(0,0,0))) && all(lessThan(idx, count));\n}\n\nivec3 clampIdx(ivec3 idx, ivec3 low, ivec3 high) {\n    return ivec3(clamp(vec3(idx), vec3(low), vec3(high)));\n}\n\nvec3 fractionalIndexOf(vec3 pos, vec3 min, float cellSize) {\n    return (pos - min) / cellSize;\n}\n\nivec3 indexOf(vec3 pos, vec3 min, float cellSize) {\n    return ivec3(floor(fractionalIndexOf(pos, min, cellSize)));\n}\n\nvec3 positionOf(ivec3 idx, vec3 min, float cellSize) {\n    return vec3(idx)*cellSize + min;\n}\n\nvec4 gridInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    vec4 lll = gridAt(grid, ivec3(l.x, l.y, l.z), count, texLength);\n    vec4 llU = gridAt(grid, ivec3(l.x, l.y, U.z), count, texLength);\n    vec4 lUl = gridAt(grid, ivec3(l.x, U.y, l.z), count, texLength);\n    vec4 lUU = gridAt(grid, ivec3(l.x, U.y, U.z), count, texLength);\n    vec4 Ull = gridAt(grid, ivec3(U.x, l.y, l.z), count, texLength);\n    vec4 UlU = gridAt(grid, ivec3(U.x, l.y, U.z), count, texLength);\n    vec4 UUl = gridAt(grid, ivec3(U.x, U.y, l.z), count, texLength);\n    vec4 UUU = gridAt(grid, ivec3(U.x, U.y, U.z), count, texLength);\n\n    vec4 k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    vec4 k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    vec4 k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    vec4 k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    vec4 j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    vec4 j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nfloat gridComponentInterpolate(sampler2D grid, vec3 pos, vec3 min, vec3 offset, ivec3 count, int texLength, float cellSize, int c) {\n    \n    vec3 fIdx = fractionalIndexOf(pos, min, cellSize) + offset;\n    fIdx = clamp(fIdx, vec3(0,0,0), fIdx);\n    vec3 l = clamp(floor(fIdx), vec3(0,0,0), vec3(count - 1));\n    vec3 U = clamp(ceil(fIdx), vec3(0,0,0), vec3(count - 1));\n\n    float lll = gridComponentAt(grid, ivec3(l.x, l.y, l.z), count, texLength, c);\n    float llU = gridComponentAt(grid, ivec3(l.x, l.y, U.z), count, texLength, c);\n    float lUl = gridComponentAt(grid, ivec3(l.x, U.y, l.z), count, texLength, c);\n    float lUU = gridComponentAt(grid, ivec3(l.x, U.y, U.z), count, texLength, c);\n    float Ull = gridComponentAt(grid, ivec3(U.x, l.y, l.z), count, texLength, c);\n    float UlU = gridComponentAt(grid, ivec3(U.x, l.y, U.z), count, texLength, c);\n    float UUl = gridComponentAt(grid, ivec3(U.x, U.y, l.z), count, texLength, c);\n    float UUU = gridComponentAt(grid, ivec3(U.x, U.y, U.z), count, texLength, c);\n\n    float k1 = l.z == U.z ? lll : (U.z - fIdx.z) * lll + (fIdx.z - l.z) * llU;\n    float k2 = l.z == U.z ? lUl : (U.z - fIdx.z) * lUl + (fIdx.z - l.z) * lUU;\n    float k3 = l.z == U.z ? Ull : (U.z - fIdx.z) * Ull + (fIdx.z - l.z) * UlU;\n    float k4 = l.z == U.z ? UUl : (U.z - fIdx.z) * UUl + (fIdx.z - l.z) * UUU;\n\n    float j1 = l.y == U.y ? k1 : (U.y - fIdx.y) * k1 + (fIdx.y - l.y) * k2;\n    float j2 = l.y == U.y ? k3 : (U.y - fIdx.y) * k3 + (fIdx.y - l.y) * k4;\n\n    return l.x == U.x ? j1 : (U.x - fIdx.x) * j1 + (fIdx.x - l.x) * j2;\n}\n\nvoid main() {\n    int pIdx = (int(v_id) / 2) * 2;\n    int vIdx = pIdx + 1;\n\n    int isPos = int(v_id) - 2*(int(v_id) / 2);\n\n    int pV = pIdx / u_particleTexLength;\n    int pU = pIdx - pV * u_particleTexLength;\n\n    int vV = vIdx / u_particleTexLength;\n    int vU = vIdx - vV * u_particleTexLength;\n\n    vec2 pUV = (vec2(pU, pV) + 0.01) / float(u_particleTexLength);\n    vec2 vUV = (vec2(vU, vV) + 0.01) / float(u_particleTexLength);\n\n    vec4 pos = texture2D(u_particles, pUV);\n    vec4 vel = texture2D(u_particles, vUV);\n\n    if (isPos == 1) {\n        val = vel;\n        gl_Position = vec4(vUV * 2.0 - 1.0, -1.0, 1.0);\n    } else {\n        vec3 nPos = pos.rgb + vel.rgb * u_t;\n        val = vec4(clamp(nPos, u_min, u_max), pos.w);\n        gl_Position = vec4(pUV * 2.0 - 1.0, -1.0, 1.0);\n    }\n    \n    gl_PointSize = 1.0;\n}"
+
+/***/ }),
+/* 48 */
+/***/ (function(module, exports) {
+
+	module.exports = "\nprecision highp float;\n\nvarying vec4 val;\n\nvoid main() {\n    gl_FragColor = val;\n}"
 
 /***/ })
 /******/ ]);
