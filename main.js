@@ -92,6 +92,13 @@ function drawUpdate() { ///перерисовываем канвас
 }
 // когда render отрисован добавляем возможность двигать камерой
 render.ready.then(() => {
+  var gui = new DAT.GUI();
+  var cameracontrols = gui.addFolder('Камера')
+  console.log(render.camera.controls)
+  cameracontrols.add(render.camera.controls, 'panSpeed', 0.1, 2)
+  cameracontrols.add(render.camera.controls, 'zoomSpeed', 0.1, 1)
+  cameracontrols.add(render.camera.controls, 'rotateSpeed', 0.1, 2)
+  cameracontrols.open()
   initialize(simulationControls)
   drawloop.start()
   ///вешаем событие при наведении, чтобы объект снова перерисовывался
@@ -134,4 +141,5 @@ var fluidSettings = gui.addFolder('Жидкость')
 fluidSettings.add(simulationControls, 'density')
 fluidSettings.add(simulationControls, 'viscosity', 0, 100)
 fluidSettings.open()
+
 

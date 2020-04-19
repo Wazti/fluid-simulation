@@ -15,7 +15,7 @@ function hexToRgbA(hex){
       return [parseFloat((c>>16)&255)/255, parseFloat((c>>8)&255)/255, parseFloat(c&255)/255]
   }
 }
-function Camera(canvas) {
+function Camera(canvas, controls) {
   var camera = new THREE.PerspectiveCamera( 10, canvas.width / canvas.height, 0.1, 1000 );
   var controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -23,7 +23,7 @@ function Camera(canvas) {
   controls.target.set(0, 0, 0);
   controls.rotateSpeed = 0.3;
   controls.zoomSpeed = 0.5;
-  controls.panSpeed = 1.0;
+  controls.panSpeed = 0.8;
 
   camera.controls = controls // ставим настройки камеры
   return camera
@@ -39,7 +39,7 @@ export default function Render(gl) {
   function setup() {
     console.log(canvas)
     camera = Camera(canvas)
-    camera.position.set(3,1,12);
+    camera.position.set(3,-1,8);
   }
   function resize() { //обновление размера канваса
     canvas.width = window.innerWidth

@@ -128,9 +128,7 @@
 	  },
 	  density: 10000, // particles per cubic meter
 	  solverSteps: 100,
-	  viscosity: 5,
-	  precondition: true,
-	  ipp: true
+	  viscosity: 5
 	};
 	function initialize(settings) {
 	  var CELL_SIZE = 2 / Math.cbrt(settings.density); // ~8 particles per cell
@@ -169,6 +167,13 @@
 	}
 	// когда render отрисован добавляем возможность двигать камерой
 	render.ready.then(function () {
+	  var gui = new _dat2.default.GUI();
+	  var cameracontrols = gui.addFolder('Камера');
+	  console.log(render.camera.controls);
+	  cameracontrols.add(render.camera.controls, 'panSpeed', 0.1, 2);
+	  cameracontrols.add(render.camera.controls, 'zoomSpeed', 0.1, 1);
+	  cameracontrols.add(render.camera.controls, 'rotateSpeed', 0.1, 2);
+	  cameracontrols.open();
 	  initialize(simulationControls);
 	  drawloop.start();
 	  ///вешаем событие при наведении, чтобы объект снова перерисовывался
@@ -179,7 +184,15 @@
 	    drawloop.start();
 	  });
 	});
+	var debug = { debug: false };
 	var gui = new _dat2.default.GUI();
+	gui.add(simulationControls, 'start');
+	gui.add(simulationControls, 'restart');
+	gui.add(debug, 'debug').onChange(function (x) {
+	  gridPainter.drawMIC = x;
+	  gridPainter.drawTypes = x;
+	  drawloop.start();
+	});
 	var particleSettings = gui.addFolder('Частица');
 	particleSettings.addColor(particleparams, 'color').onChange(function () {
 	  drawloop.start();
@@ -187,15 +200,15 @@
 	particleSettings.open();
 	
 	var boxSettings = gui.addFolder('Размеры области');
-	boxSettings.add(boxParams, 'x', 0, 1).onChange(function () {
+	boxSettings.add(boxParams, 'x', .1, .8).onChange(function () {
 	  initialize(simulationControls);
 	  drawloop.start();
 	});
-	boxSettings.add(boxParams, 'y', 0, 1).onChange(function () {
+	boxSettings.add(boxParams, 'y', .1, .8).onChange(function () {
 	  initialize(simulationControls);
 	  drawloop.start();
 	});
-	boxSettings.add(boxParams, 'z', 0, 1).onChange(function () {
+	boxSettings.add(boxParams, 'z', .1, .8).onChange(function () {
 	  initialize(simulationControls);
 	  drawloop.start();
 	});
@@ -204,12 +217,6 @@
 	fluidSettings.add(simulationControls, 'density');
 	fluidSettings.add(simulationControls, 'viscosity', 0, 100);
 	fluidSettings.open();
-	
-	var controls = gui.addFolder('Controls');
-	controls.add(simulationControls, 'start');
-	controls.add(simulationControls, 'stop');
-	controls.add(simulationControls, 'restart');
-	controls.open();
 
 /***/ }),
 /* 1 */
@@ -2781,7 +2788,7 @@
 	    return [parseFloat(c >> 16 & 255) / 255, parseFloat(c >> 8 & 255) / 255, parseFloat(c & 255) / 255];
 	  }
 	}
-	function Camera(canvas) {
+	function Camera(canvas, controls) {
 	  var camera = new THREE.PerspectiveCamera(10, canvas.width / canvas.height, 0.1, 1000);
 	  var controls = new OrbitControls(camera, canvas);
 	  controls.enableDamping = true;
@@ -2789,7 +2796,7 @@
 	  controls.target.set(0, 0, 0);
 	  controls.rotateSpeed = 0.3;
 	  controls.zoomSpeed = 0.5;
-	  controls.panSpeed = 1.0;
+	  controls.panSpeed = 0.8;
 	
 	  camera.controls = controls; // ставим настройки камеры
 	  return camera;
@@ -2805,7 +2812,7 @@
 	  function setup() {
 	    console.log(canvas);
 	    camera = Camera(canvas);
-	    camera.position.set(3, 1, 12);
+	    camera.position.set(3, -1, 8);
 	  }
 	  function resize() {
 	    //обновление размера канваса
@@ -54566,8 +54573,8 @@
 	      }
 	
 	      var painter = {
-	        drawTypes: true,
-	        drawMIC: true,
+	        drawTypes: false,
+	        drawMIC: false,
 	        setBuffer: function setBuffer(_grid) {
 	          grid = _grid;
 	          setup(grid);
@@ -56140,17 +56147,7 @@
 	
 	                buildA();
 	                setupb();
-	
-	                if (settings.precondition) {
-	                    if (settings.ipp) {
-	                        IPPprecondition(true); // set z = P-1 r, s = z
-	                    } else {
-	                        precondition();
-	                        preconditionZ(true);
-	                    }
-	                }
-	
-	                var buf = new Float32Array(4 * grid.textureLength * grid.textureLength);
+	                IPPprecondition(true); // set z = P-1 r, s = z
 	
 	                for (var i = 0; i < solverSteps; ++i) {
 	
@@ -56161,15 +56158,8 @@
 	                    computeAlpha(); // compute z dot s
 	
 	                    updateGuess();
-	
-	                    if (settings.precondition) {
-	                        clearZ();
-	                        if (settings.ipp) {
-	                            IPPprecondition(false);
-	                        } else {
-	                            preconditionZ(false);
-	                        }
-	                    }
+	                    clearZ();
+	                    IPPprecondition(false);
 	                    computeSigma(true, settings.precondition);
 	
 	                    updateSearch();
