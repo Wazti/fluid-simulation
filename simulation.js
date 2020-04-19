@@ -1074,17 +1074,7 @@ export default function (gl) {
            
                 buildA()
                 setupb()
-
-                if (settings.precondition) {
-                    if (settings.ipp) {
-                        IPPprecondition(true) // set z = P-1 r, s = z
-                    } else {
-                        precondition()
-                        preconditionZ(true)
-                    }
-                }
-                
-                var buf = new Float32Array(4*grid.textureLength*grid.textureLength)
+                IPPprecondition(true) // set z = P-1 r, s = z
 
                 for (var i = 0; i < solverSteps; ++i) {
                     
@@ -1095,16 +1085,8 @@ export default function (gl) {
                     computeAlpha() // compute z dot s
 
                     updateGuess()
-
-                    if (settings.precondition) {
-                        clearZ()
-                        if (settings.ipp) {
-                            IPPprecondition(false)
-                        } else {
-                            preconditionZ(false)
-                        }
-                        
-                    }
+                    clearZ()
+                    IPPprecondition(false)
                     computeSigma(true, settings.precondition)
 
                     updateSearch()

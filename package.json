@@ -17,7 +17,6 @@
     "webpack-glsl-loader": "^1.0.1"
   },
   "dependencies": {
-    "dat-gui": "0.7.7",
     "dat.gui": "^0.7.7",
     "gl-matrix": "^2.3.2",
     "stats-js": "^1.0.0-alpha1",

@@ -52,8 +52,6 @@ var simulationControls = {
   density: 10000,  // particles per cubic meter
   solverSteps: 100,
   viscosity: 5,
-  precondition: true,
-  ipp: true,
 }
 function initialize(settings) { 
   var CELL_SIZE = 2 / Math.cbrt(settings.density) // ~8 particles per cell
@@ -104,22 +102,30 @@ render.ready.then(() => {
     drawloop.start()
   })
 })
+var debug = {debug: false}
 var gui = new DAT.GUI();
+gui.add(simulationControls, 'start')
+gui.add(simulationControls, 'restart')
+gui.add(debug, 'debug').onChange(function(x) {
+  gridPainter.drawMIC  = x;
+  gridPainter.drawTypes = x;
+  drawloop.start();
+})
 var particleSettings = gui.addFolder('Частица');
 particleSettings.addColor( particleparams, 'color' )
       .onChange( function() { drawloop.start() } );
 particleSettings.open();
 
 var boxSettings = gui.addFolder('Размеры области')
-boxSettings.add(boxParams, 'x', 0, 1).onChange( function() { 
+boxSettings.add(boxParams, 'x', .1, .8).onChange( function() { 
   initialize(simulationControls) 
   drawloop.start()
 });
-boxSettings.add(boxParams, 'y', 0, 1).onChange( function() { 
+boxSettings.add(boxParams, 'y', .1, .8).onChange( function() { 
   initialize(simulationControls)
   drawloop.start()
 });
-boxSettings.add(boxParams, 'z', 0, 1).onChange( function() { 
+boxSettings.add(boxParams, 'z', .1, .8).onChange( function() { 
   initialize(simulationControls)
   drawloop.start()
 } );
@@ -129,8 +135,3 @@ fluidSettings.add(simulationControls, 'density')
 fluidSettings.add(simulationControls, 'viscosity', 0, 100)
 fluidSettings.open()
 
-var controls = gui.addFolder('Controls')
-controls.add(simulationControls, 'start')
-controls.add(simulationControls, 'stop')
-controls.add(simulationControls, 'restart')
-controls.open()

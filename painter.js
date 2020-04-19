@@ -123,8 +123,8 @@ function Painters(gl) {
           }
   
           var painter = {
-            drawTypes: true,
-            drawMIC: true,
+            drawTypes: false,
+            drawMIC: false,
             setBuffer: function(_grid) {
               grid = _grid
               setup(grid)
